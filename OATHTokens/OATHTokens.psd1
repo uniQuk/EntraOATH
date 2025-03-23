@@ -21,7 +21,7 @@
     Description = 'PowerShell module for managing OATH tokens in Microsoft Entra ID via Microsoft Graph API.'
 
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion = '7.5.0'
+    PowerShellVersion = '7.0.0'
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules = @(
