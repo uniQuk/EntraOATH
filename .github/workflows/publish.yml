@@ -150,4 +150,4 @@ jobs:
             Write-Host "Updated psgallery.json to turn off publishing flag"
           } catch {
             Write-Error "Failed to publish module: $_"
-            exit 1
+            exit 1 }
