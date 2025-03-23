@@ -29,6 +29,7 @@ jobs:
               Write-Error "There were $($errors.Count) errors and $($warnings.Count) warnings total." -ErrorAction Stop
           } else {
               Write-Output "There were $($errors.Count) errors and $($warnings.Count) warnings total."
+          }
 
   build-and-publish:
     needs: lint-with-PSScriptAnalyzer
