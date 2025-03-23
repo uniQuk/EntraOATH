@@ -9,8 +9,8 @@
     The path where the export file should be created
 .PARAMETER Format
     The format to export to. Options are CSV, JSON, and PS (PowerShell objects)
-.PARAMETER IncludeUserDetails
-    Include detailed user information for assigned tokens
+.PARAMETER Delimiter
+    The delimiter character to use for CSV format. Defaults to comma (,).
 .PARAMETER Force
     Overwrite the file if it already exists
 .EXAMPLE
@@ -22,9 +22,13 @@
     
     Exports only available tokens to a JSON file
 .EXAMPLE
-    Export-OATHToken -IncludeUserDetails -Format PS
+    Export-OATHToken -Format PS
     
-    Returns token objects with detailed user information as PowerShell objects
+    Returns token objects as PowerShell objects
+.EXAMPLE
+    Export-OATHToken -FilePath "C:\Temp\tokens.tsv" -Delimiter "`t"
+    
+    Exports tokens to a tab-separated values file
 .NOTES
     Requires Microsoft.Graph.Authentication module and appropriate permissions:
     - Policy.ReadWrite.AuthenticationMethod
@@ -45,7 +49,7 @@ function Export-OATHToken {
         [string]$Format = 'CSV',
         
         [Parameter()]
-        [switch]$IncludeUserDetails,
+        [string]$Delimiter = ',',
         
         [Parameter()]
         [switch]$Force
@@ -58,7 +62,7 @@ function Export-OATHToken {
         # Set default file path if not provided
         if (-not $FilePath -and $Format -ne 'PS') {
             $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-            $extension = $Format.ToLower()
+            $extension = if ($Format -eq 'CSV' -and $Delimiter -eq "`t") { 'tsv' } else { $Format.ToLower() }
             $FilePath = Join-Path -Path $PWD -ChildPath "OATHTokens_$timestamp.$extension"
         }
         
@@ -100,64 +104,23 @@ function Export-OATHToken {
             
             Write-Verbose "Processing $($allTokens.Count) tokens for export."
             
-            # Add user details if requested
-            if ($IncludeUserDetails) {
-                $enrichedTokens = [System.Collections.Generic.List[object]]::new()
-                
-                foreach ($token in $allTokens) {
-                    # Create a copy of the token object
-                    $enrichedToken = [PSCustomObject]@{
-                        Id = $token.Id
-                        SerialNumber = $token.SerialNumber
-                        DisplayName = $token.DisplayName
-                        Manufacturer = $token.Manufacturer
-                        Model = $token.Model
-                        HashFunction = $token.HashFunction
-                        TimeInterval = $token.TimeInterval
-                        Status = $token.Status
-                        LastUsed = $token.LastUsed
-                        Created = $token.Created
-                        AssignedToId = $token.AssignedToId
-                        AssignedToName = $token.AssignedToName
-                        AssignedToUpn = $token.AssignedToUpn
-                        UserDetails = $null
-                    }
-                    
-                    # Get detailed user info if token is assigned
-                    if ($token.AssignedToId) {
-                        try {
-                            $userDetails = Get-MgUser -UserId $token.AssignedToId -ErrorAction SilentlyContinue
-                            $enrichedToken.UserDetails = $userDetails
-                        }
-                        catch {
-                            Write-Warning "Could not retrieve details for user $($token.AssignedToId): $_"
-                        }
-                    }
-                    
-                    $enrichedTokens.Add($enrichedToken)
-                }
-                
-                # Replace the token collection with the enriched version
-                $allTokens = $enrichedTokens
-            }
-            
             # Export in the requested format
             switch ($Format) {
                 'CSV' {
-                    if ($PSCmdlet.ShouldProcess($FilePath, "Export $($allTokens.Count) tokens to CSV")) {
+                    if ($PSCmdlet.ShouldProcess($FilePath, "Export $($allTokens.Count) tokens to $Format")) {
                         # Select properties suitable for CSV format
                         $csvTokens = $allTokens | Select-Object Id, SerialNumber, DisplayName, Manufacturer, 
                             Model, HashFunction, TimeInterval, Status, LastUsed, Created,
                             AssignedToId, AssignedToName, AssignedToUpn
                         
-                        $csvTokens | Export-Csv -Path $FilePath -NoTypeInformation
-                        Write-Host "Successfully exported $($allTokens.Count) tokens to CSV: $FilePath" -ForegroundColor Green
+                        $csvTokens | Export-Csv -Path $FilePath -NoTypeInformation -Delimiter $Delimiter
+                        Write-Host "Successfully exported $($allTokens.Count) tokens to $Format : $FilePath" -ForegroundColor Green
                     }
                 }
                 'JSON' {
-                    if ($PSCmdlet.ShouldProcess($FilePath, "Export $($allTokens.Count) tokens to JSON")) {
+                    if ($PSCmdlet.ShouldProcess($FilePath, "Export $($allTokens.Count) tokens to $Format")) {
                         $allTokens | ConvertTo-Json -Depth 10 | Set-Content -Path $FilePath
-                        Write-Host "Successfully exported $($allTokens.Count) tokens to JSON: $FilePath" -ForegroundColor Green
+                        Write-Host "Successfully exported $($allTokens.Count) tokens to $Format : $FilePath" -ForegroundColor Green
                     }
                 }
                 'PS' {

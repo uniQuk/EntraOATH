@@ -84,23 +84,29 @@ foreach ($functionType in $functionTypes) {
     }
 }
 
-# Export public functions and aliases defined in the module manifest
-$manifestPath = Join-Path -Path $PSScriptRoot -ChildPath 'OATHTokens.psd1'
-if (Test-Path -Path $manifestPath) {
-    $manifest = Import-PowerShellDataFile -Path $manifestPath
-    
-    foreach ($function in $manifest.FunctionsToExport) {
-        if (Get-Command -Name $function -ErrorAction SilentlyContinue) {
-            Export-ModuleMember -Function $function
-        }
-    }
-    
-    foreach ($alias in $manifest.AliasesToExport) {
-        if (Get-Alias -Name $alias -ErrorAction SilentlyContinue) {
-            Export-ModuleMember -Alias $alias
-        }
-    }
-}
+# Ensure the Get-MgUserByIdentifier function and Test-MgUserExists functions are explicitly exported
+Export-ModuleMember -Function @(
+    'Add-OATHToken',
+    'Get-OATHToken',
+    'Remove-OATHToken',
+    'Set-OATHTokenUser',
+    'Set-OATHTokenActive',
+    'Import-OATHToken',
+    'Export-OATHToken',
+    'New-OATHTokenSerial',
+    'Convert-Base32',
+    'Show-OATHTokenMenu',
+    'Get-TOTP',
+    'Test-TOTP',
+    'Get-MgUserByIdentifier',
+    'Test-MgUserExists'
+) -Alias @(
+    'Remove-HardwareOathToken',
+    'Convert-Base32String',
+    'Assign-HardwareOathToken',
+    'Activate-HardwareOathToken',
+    'Export-HardwareOathTokensToCsv'
+)
 
 # Log module loading
 Write-Verbose "OATH Token Management module loaded"

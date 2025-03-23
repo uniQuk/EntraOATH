@@ -10,6 +10,8 @@
     The serial number of the token to remove
 .PARAMETER Force
     Suppress confirmation prompts
+.PARAMETER UnassignFirst
+    Automatically unassign tokens before removal if they are assigned to a user
 .PARAMETER ApiVersion
     The Microsoft Graph API version to use. Defaults to 'beta'.
 .EXAMPLE
@@ -24,6 +26,10 @@
     Get-OATHToken -AvailableOnly | Remove-OATHToken -Force
     
     Removes all available (unassigned) tokens without confirmation
+.EXAMPLE
+    Remove-OATHToken -TokenId "00000000-0000-0000-0000-000000000000" -UnassignFirst
+    
+    Unassigns the token from its user (if assigned) before removing it
 .NOTES
     Requires Microsoft.Graph.Authentication module and appropriate permissions:
     - Policy.ReadWrite.AuthenticationMethod
@@ -44,6 +50,9 @@ function Remove-OATHToken {
         [switch]$Force,
         
         [Parameter()]
+        [switch]$UnassignFirst,
+        
+        [Parameter()]
         [string]$ApiVersion = 'beta'
     )
     
@@ -55,117 +64,121 @@ function Remove-OATHToken {
         
         $baseEndpoint = "https://graph.microsoft.com/$ApiVersion/directory/authenticationMethodDevices/hardwareOathDevices"
         
-        # Initialize counters for reporting when processing multiple tokens
-        $successCount = 0
-        $failedCount = 0
-        $processedCount = 0
     }
     
     process {
         try {
-            $processedCount++
-            $targetTokens = @()
-            
-            # Resolve token by ID or serial number
-            if ($PSCmdlet.ParameterSetName -eq 'ById') {
-                # Validate token ID format
-                if (-not (Test-OATHTokenId -TokenId $TokenId)) {
-                    Write-Error "Invalid token ID format: $TokenId"
+            # Resolve token ID if searching by serial number
+            if ($PSCmdlet.ParameterSetName -eq 'BySerial') {
+                $tokens = Get-OATHToken -SerialNumber $SerialNumber
+                
+                if ($tokens.Count -eq 0) {
+                    Write-Error "No token found with serial number $SerialNumber"
                     return $false
                 }
                 
-                $targetTokens += @{
-                    Id = $TokenId
-                    DisplayName = $TokenId  # Use ID as display name if we don't fetch full details
-                }
-            }
-            elseif ($PSCmdlet.ParameterSetName -eq 'BySerial') {
-                # Find token by serial number
-                $tokens = Get-OATHToken
-                $matchingTokens = $tokens | Where-Object { $_.SerialNumber -eq $SerialNumber }
-                
-                if (-not $matchingTokens -or $matchingTokens.Count -eq 0) {
-                    Write-Error "No token found with serial number: $SerialNumber"
-                    return $false
+                if ($tokens.Count -gt 1) {
+                    Write-Warning "Multiple tokens found with serial number $SerialNumber. Using the first matching token."
                 }
                 
-                if ($matchingTokens.Count -gt 1) {
-                    Write-Warning "Multiple tokens found with serial number $SerialNumber. Using first match."
-                }
-                
-                $targetTokens += $matchingTokens | Select-Object -First 1
-            }
-            elseif ($PSCmdlet.ParameterSetName -eq 'InputObject') {
-                # This handles input from the pipeline (e.g., from Get-OATHToken)
-                $targetTokens += $_
+                $TokenId = $tokens[0].Id
             }
             
-            foreach ($token in $targetTokens) {
-                $endpoint = "$baseEndpoint/$($token.Id)"
-                $displayName = if ($token.DisplayName) { $token.DisplayName } else { $token.Id }
-                $serialDisplay = if ($token.SerialNumber) { " (S/N: $($token.SerialNumber))" } else { "" }
+            # Validate token ID format
+            if (-not (Test-OATHTokenId -TokenId $TokenId)) {
+                Write-Error "Invalid token ID format: $TokenId"
+                return $false
+            }
+            
+            # Get token details to check if assigned
+            $token = Get-OATHToken -TokenId $TokenId
+            if (-not $token) {
+                Write-Error "Token not found with ID: $TokenId"
+                return $false
+            }
+            
+            # Check if token is assigned to a user and handle based on UnassignFirst parameter
+            $isAssigned = (-not [string]::IsNullOrEmpty($token.AssignedToId))
+            
+            if ($isAssigned) {
+                $tokenDisplay = if ($token.SerialNumber) {
+                    "$TokenId (S/N: $($token.SerialNumber))"
+                } else {
+                    $TokenId
+                }
                 
-                # Check if token is assigned to a user and warn
-                if ($token.AssignedToId -or $token.assignedTo.id) {
-                    $assignedToName = if ($token.AssignedToName) { $token.AssignedToName } elseif ($token.assignedTo.displayName) { $token.assignedTo.displayName } else { "Unknown User" }
-                    $assignedToId = if ($token.AssignedToId) { $token.AssignedToId } elseif ($token.assignedTo.id) { $token.assignedTo.id } else { "Unknown ID" }
+                $userDisplay = if ($token.AssignedToName) {
+                    "$($token.AssignedToName) ($($token.AssignedToId))"
+                } else {
+                    $token.AssignedToId
+                }
+                
+                if ($UnassignFirst) {
+                    Write-Host "Token $tokenDisplay is assigned to $userDisplay. Attempting to unassign first..." -ForegroundColor Yellow
                     
-                    # Extra warning for assigned tokens
-                    if (-not $Force) {
-                        Write-Warning "Token $displayName$serialDisplay is assigned to user $assignedToName ($assignedToId)."
-                        Write-Warning "Removing this token will impact the user's ability to authenticate."
-                    }
-                }
-                
-                # Confirm removal unless Force is specified
-                if ($Force -or $PSCmdlet.ShouldProcess("Token $displayName$serialDisplay", "Remove")) {
-                    try {
-                        Write-Verbose "Removing token: $displayName$serialDisplay"
-                        Invoke-MgGraphWithErrorHandling -Method DELETE -Uri $endpoint -ErrorAction Stop
-                        
-                        Write-Host "Successfully removed token: $displayName$serialDisplay" -ForegroundColor Green
-                        $successCount++
-                        
-                        # In single item mode, return true
-                        if ($targetTokens.Count -eq 1) {
-                            return $true
-                        }
-                    }
-                    catch {
-                        $errorMessage = "Failed to remove token $displayName$serialDisplay`: $_"
-                        Write-Error $errorMessage
-                        $failedCount++
-                        
-                        # In single item mode, return false
-                        if ($targetTokens.Count -eq 1) {
+                    if ($Force -or $PSCmdlet.ShouldProcess("Token $tokenDisplay", "Unassign from $userDisplay")) {
+                        try {
+                            $unassignResult = Set-OATHTokenUser -TokenId $TokenId -Unassign -Force:$Force
+                            
+                            if (-not $unassignResult.Success) {
+                                Write-Error "Failed to unassign token: $($unassignResult.Reason)"
+                                Write-Host "To manually unassign, run: Set-OATHTokenUser -TokenId '$TokenId' -Unassign" -ForegroundColor Yellow
+                                return $false
+                            }
+                            
+                            Write-Host "Token successfully unassigned." -ForegroundColor Green
+                        } catch {
+                            Write-Error "Error unassigning token: $_"
+                            Write-Host "To manually unassign, run: Set-OATHTokenUser -TokenId '$TokenId' -Unassign" -ForegroundColor Yellow
                             return $false
                         }
+                    } else {
+                        Write-Warning "Unassignment canceled. Token was not removed."
+                        return $false
                     }
-                }
-                else {
-                    # User declined confirmation
-                    Write-Warning "Removal of token $displayName$serialDisplay was canceled by user."
+                } else {
+                    # Token is assigned but UnassignFirst not specified
+                    $errorMsg = "Cannot delete an assigned token. Token is currently assigned to $userDisplay."
+                    Write-Error $errorMsg
+                    Write-Host "To unassign and remove this token, run either:" -ForegroundColor Yellow
+                    Write-Host "  - Remove-OATHToken -TokenId '$TokenId' -UnassignFirst" -ForegroundColor Yellow
+                    Write-Host "  or" -ForegroundColor Yellow
+                    Write-Host "  - Set-OATHTokenUser -TokenId '$TokenId' -Unassign" -ForegroundColor Yellow
+                    Write-Host "  - Remove-OATHToken -TokenId '$TokenId'" -ForegroundColor Yellow
                     return $false
                 }
             }
-        }
-        catch {
-            Write-Error "Error in Remove-OATHToken: $_"
+            
+            # Proceed with token removal
+            $endpoint = "$baseEndpoint/$TokenId"
+            $description = if ($token.SerialNumber) {
+                "token with ID $TokenId (S/N: $($token.SerialNumber))"
+            } else {
+                "token with ID $TokenId"
+            }
+            
+            if ($Force -or $PSCmdlet.ShouldProcess($description, "Remove")) {
+                Invoke-MgGraphWithErrorHandling -Method DELETE -Uri $endpoint
+                Write-Host "Successfully removed token: $TokenId" -ForegroundColor Green
+                return $true
+            } else {
+                Write-Warning "Removal canceled by user."
+                return $false
+            }
+        } catch {
+            if ($_.ToString() -match "Cannot delete an assigned") {
+                Write-Error "Failed to remove token $TokenId : Cannot delete an assigned hardware OATH token."
+                Write-Host "To unassign and remove this token, run:" -ForegroundColor Yellow
+                Write-Host "  Remove-OATHToken -TokenId '$TokenId' -UnassignFirst" -ForegroundColor Yellow
+            } else {
+                Write-Error "Error in Remove-OATHToken: $_"
+            }
             return $false
         }
     }
     
     end {
-        # Only show summary if processing multiple tokens
-        if ($processedCount -gt 1) {
-            Write-Host "`nToken Removal Summary:" -ForegroundColor Cyan
-            Write-Host "  Total Processed: $processedCount" -ForegroundColor White
-            Write-Host "  Successfully Removed: $successCount" -ForegroundColor Green
-            Write-Host "  Failed: $failedCount" -ForegroundColor Red
-            
-            # Return true if at least one token was successfully removed
-            return $successCount -gt 0
-        }
+        # No additional end-block logic needed
     }
 }
 

@@ -167,7 +167,7 @@ function Set-OATHTokenActive {
             } | ConvertTo-Json
             
             # Display info for confirmation
-            $displayName = if ($token.DisplayName) { $token.DisplayName } else { $token.Id }
+            $displayName = if ($token.DisplayName) { $token.DisplayName } elseif ($token.displayName) { $token.displayName } else { $token.Id }
             $serialDisplay = if ($token.SerialNumber) { " (S/N: $($token.SerialNumber))" } else { "" }
             $userName = if ($token.AssignedToName) { $token.AssignedToName } else { $UserId }
             

@@ -178,30 +178,45 @@ function Add-OATHToken {
                 }
                 
                 # Convert secret key to Base32 if needed
-                if ($currentToken.secretKey -and (-not [regex]::IsMatch($currentToken.secretKey, '^[A-Z2-7]+=*$'))) {
+                if ($currentToken.secretKey) {
                     $originalKey = $currentToken.secretKey
-                    $format = if ($currentToken.secretFormat -and $currentToken.secretFormat -in @('hex', 'text')) {
-                        $currentToken.secretFormat
-                    } else {
-                        'Hex'  # Default assumption for non-Base32 keys is hex
-                    }
+                    $format = 'Base32'  # Default format
                     
-                    switch ($format.ToLower()) {
-                        'hex' {
-                            $currentToken.secretKey = ConvertTo-Base32 -InputString $originalKey -InputFormat 'Hex'
+                    # Check if a specific format is specified
+                    if ($currentToken.PSObject.Properties.Name -contains 'secretFormat') {
+                        $format = $currentToken.secretFormat.ToLower()
+                    } 
+                    # If no format specified but key doesn't look like Base32, try to determine format
+                    elseif (-not [regex]::IsMatch($originalKey, '^[A-Z2-7]+=*$')) {
+                        # Try to guess the format - if it looks like hex, assume hex
+                        if ($originalKey -match '^[0-9a-fA-F]+$') {
+                            $format = 'hex'
+                            Write-Verbose "Secret key appears to be hex format for token $($currentToken.serialNumber)"
+                        } else {
+                            $format = 'text'
+                            Write-Verbose "Secret key assumed to be text format for token $($currentToken.serialNumber)"
                         }
-                        'text' {
-                            $currentToken.secretKey = ConvertTo-Base32 -InputString $originalKey -InputFormat 'Text'
+                    }
+                    
+                    # Convert to Base32 if needed
+                    if ($format -ne 'base32' -and $format -ne 'Base32') {
+                        Write-Verbose "Converting secret from $format to Base32 for token $($currentToken.serialNumber)"
+                        try {
+                            $convertedKey = ConvertTo-Base32 -InputString $originalKey -InputFormat $format
+                            if ($convertedKey) {
+                                $currentToken.secretKey = $convertedKey
+                                Write-Verbose "Successfully converted secret from $format to Base32"
+                            } else {
+                                Write-Warning "Failed to convert secret key from $format to Base32 for token $($currentToken.serialNumber)"
+                                $failedCount++
+                                continue
+                            }
+                        } catch {
+                            Write-Warning "Error converting secret key from $format to Base32: $_"
+                            $failedCount++
+                            continue
                         }
                     }
-                    
-                    if (-not $currentToken.secretKey) {
-                        Write-Warning "Failed to convert secret key for token with serial number $($currentToken.serialNumber)"
-                        $failedCount++
-                        continue
-                    }
-                    
-                    Write-Verbose "Converted secret key from format '$format' to Base32 for token $($currentToken.serialNumber)"
                 }
                 
                 # Set default values for optional properties if not provided

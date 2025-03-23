@@ -45,7 +45,9 @@
         'Show-OATHTokenMenu',
         'Get-TOTP',
         'Test-TOTP',
-        'Reload-Function'
+        'Reload-Function',
+        'Get-MgUserByIdentifier',  # Add this function
+        'Test-MgUserExists'       # Add this function
     )
 
     # Cmdlets to export from this module

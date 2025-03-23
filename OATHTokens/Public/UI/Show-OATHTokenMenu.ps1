@@ -360,6 +360,7 @@ function Show-OATHTokenMenu {
             Write-Host "1) Remove OATH" -ForegroundColor $promptColor
             Write-Host "2) Bulk Remove OATH" -ForegroundColor $promptColor
             Write-Host "3) Unassign OATH token" -ForegroundColor $promptColor
+            Write-Host "4) Remove with auto-unassign" -ForegroundColor $promptColor
             Write-Host "0) Return to main menu" -ForegroundColor $promptColor
             Write-Host ""
             
@@ -446,6 +447,20 @@ function Show-OATHTokenMenu {
                     
                     Write-Host "Press any key to continue..." -ForegroundColor $promptColor
                     [void][System.Console]::ReadKey($true)
+                    Show-RemoveMenu
+                }
+                "4" {
+                    $tokenId = Read-Host "Enter token ID to unassign and remove"
+                    if (-not [string]::IsNullOrWhiteSpace($tokenId)) {
+                        $result = Remove-OATHToken -TokenId $tokenId -UnassignFirst
+                        if ($result) {
+                            Write-Host "Token unassigned and removed successfully." -ForegroundColor $successColor
+                        } else {
+                            Write-Host "Failed to unassign and remove token." -ForegroundColor $errorColor
+                        }
+                        Write-Host "Press any key to continue..." -ForegroundColor $promptColor
+                        [void][System.Console]::ReadKey($true)
+                    }
                     Show-RemoveMenu
                 }
                 "0" { Show-MainMenu }

@@ -2,306 +2,277 @@
 .SYNOPSIS
     Example workflow for OATH token management
 .DESCRIPTION
-    Demonstrates a complete workflow for adding, assigning, activating, and managing OATH tokens
-    using the OATHTokens module.
+    This script demonstrates a complete end-to-end workflow for OATH token management
+    including adding tokens, assigning them to users, and activating them.
 .NOTES
-    This script is provided as an example of how to use the OATHTokens module 
-    for common token management tasks.
+    Author: Josh - https://github.com/uniQuk
+    Version: 1.1
+    Date: 2024-06-20
 #>
 
-# Import the module - use a relative path for the example
-$modulePath = Join-Path -Path $PSScriptRoot -ChildPath ".."
-Import-Module -Name $modulePath -Force -Verbose
-
-# Connect to Microsoft Graph if not already connected
+# Connect to Microsoft Graph with required permissions
 if (-not (Get-MgContext)) {
-    Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Yellow
-    Connect-MgGraph -Scopes "Policy.ReadWrite.AuthenticationMethod","Directory.Read.All"
+    Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
+    Connect-MgGraph -Scopes "Policy.ReadWrite.AuthenticationMethod", "Directory.Read.All"
 }
 
-Write-Host "=== OATH Token Management Example Workflow ===" -ForegroundColor Cyan
-
-#region Step 1: Generate a unique token serial number
-Write-Host "`nStep 1: Generate a unique token serial number" -ForegroundColor Green
-
-# Generate a serial number for our new token
-$serialNumber = New-OATHTokenSerial -Prefix "DEMO-" -Format Alphanumeric -CheckExisting
-Write-Host "Generated serial number: $serialNumber" -ForegroundColor Yellow
-
-#endregion
-
-#region Step 2: Generate a secure secret key
-Write-Host "`nStep 2: Generate a secure secret key" -ForegroundColor Green
-
-# Generate a random secret key (32 hexadecimal characters)
-$hexChars = "0123456789ABCDEF"
-$secretKey = -join (1..32 | ForEach-Object { $hexChars[(Get-Random -Minimum 0 -Maximum $hexChars.Length)] })
-Write-Host "Generated hex secret key: $secretKey" -ForegroundColor Yellow
-
-# Create a proper Base32 string for the secret
-# Base32 uses characters A-Z and 2-7
-$base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-$base32Secret = -join (1..32 | ForEach-Object { $base32Chars[(Get-Random -Minimum 0 -Maximum $base32Chars.Length)] })
-Write-Host "Generated Base32 secret: $base32Secret" -ForegroundColor Yellow
-
-# Load the TOTP module if needed for other operations
-$totpPath = Join-Path $modulePath "Public\Utility\TOTP.ps1"
-if (Test-Path $totpPath) {
-    . $totpPath
+# Verify connection
+if (-not (Get-MgContext)) {
+    Write-Error "Not connected to Microsoft Graph. Please run Connect-MgGraph with appropriate scopes first."
+    return
 }
 
-#endregion
+# Define test users - using valid test accounts
+$users = @(
+    "MeganB@n7.uk",
+    "LynneR@n7.uk",
+    "LidiaH@n7.uk"
+)
 
-#region Step 3: Add the token to the system
-Write-Host "`nStep 3: Add the token to the system" -ForegroundColor Green
+# Section 1: Adding individual tokens
+Write-Host "PART 1: ADDING INDIVIDUAL TOKENS" -ForegroundColor Cyan
 
-# First, check if we have any tokens with the same serial number (should be none)
-$existingToken = Get-OATHToken -SerialNumber $serialNumber
+# Generate serial numbers with prefix - use a timestamp to ensure uniqueness
+# Added time component to make it more unique
+$timestamp = Get-Date -Format "yyMMddHHmmss"
+$serialNumbers = @(
+    "YK-$timestamp-01",
+    "YK-$timestamp-02",
+    "YK-$timestamp-03"
+)
 
-# Fix the false positive detection by properly checking the existingToken result
-if ($existingToken -and $existingToken.SerialNumber -eq $serialNumber) {
-    Write-Host "Found existing token with the same serial number: $serialNumber" -ForegroundColor Red
-    Write-Host "Token details: ID=$($existingToken.Id), Status=$($existingToken.Status)" -ForegroundColor Red
-    Write-Host "Generating a new serial number..." -ForegroundColor Yellow
-    $serialNumber = New-OATHTokenSerial -Prefix "DEMO-" -Format Alphanumeric -CheckExisting
-    Write-Host "New serial number: $serialNumber" -ForegroundColor Yellow
-}
-else {
-    # If we get here, there was no token with this serial number
-    Write-Host "No existing token found with serial number: $serialNumber. Proceeding with creation." -ForegroundColor Green
-}
+Write-Host "Generated unique serial numbers with timestamp $timestamp" -ForegroundColor Yellow
 
-# Create a token object
-$token = @{
-    serialNumber = $serialNumber
-    secretKey = $base32Secret  # Now using the proper Base32 secret
-    secretFormat = "base32"    # Changed to Base32 format
-    manufacturer = "Example Corp"
-    model = "Demo YubiKey"
-    displayName = "Demo Token ($serialNumber)"
-    timeIntervalInSeconds = 30
-    hashFunction = "hmacsha1"
-}
+# Add tokens with different secret formats - using improved error handling
+$tokens = @()
 
-Write-Host "Adding token to the system..." -ForegroundColor Yellow
-$addedToken = Add-OATHToken -Token $token
-
-if ($addedToken) {
-    Write-Host "Successfully added token with ID: $($addedToken.id)" -ForegroundColor Green
-    $tokenId = $addedToken.id
-}
-else {
-    Write-Host "Failed to add token. Exiting example." -ForegroundColor Red
-    exit
-}
-
-# Retrieve and display the token
-$retrievedToken = Get-OATHToken -TokenId $tokenId
-Write-Host "Token details:" -ForegroundColor Yellow
-$retrievedToken | Format-List
-
-#endregion
-
-#region Step 4: Find a user to assign the token to
-Write-Host "`nStep 4: Find a user to assign the token to" -ForegroundColor Green
-
-# Prompt for a user identifier (UPN, display name, etc.)
-$userIdentifier = Read-Host "Enter a user identifier (UPN, name, etc.) or press Enter to skip assignment"
-
-if (-not [string]::IsNullOrWhiteSpace($userIdentifier)) {
-    # Look up the user
-    Write-Host "Looking up user: $userIdentifier" -ForegroundColor Yellow
-    $user = Get-MgUser -Filter "userPrincipalName eq '$userIdentifier'" -ErrorAction SilentlyContinue
-    
-    if (-not $user) {
-        # Try to search by display name if UPN fails
-        $user = Get-MgUser -Filter "startswith(displayName,'$userIdentifier')" -ErrorAction SilentlyContinue | Select-Object -First 1
+try {
+    Write-Host "Adding token 1 with Base32 secret..." -ForegroundColor Yellow
+    $token1 = Add-OATHToken -SerialNumber $serialNumbers[0] -SecretKey "JBSWY3DPEHPK3PXP" -DisplayName "Token for $($users[0])"
+    if ($token1 -and $token1.id) {
+        Write-Host "Added token 1 with Base32 secret: $($token1.id)" -ForegroundColor Green
+        $tokens += @{ Token = $token1; User = $users[0]; Index = 1; Secret = "JBSWY3DPEHPK3PXP"; Format = "Base32" }
+    } else {
+        Write-Host "Failed to create token 1" -ForegroundColor Red
     }
+} catch {
+    Write-Host "Error creating token 1: $_" -ForegroundColor Red
+}
+
+try {
+    Write-Host "Adding token 2 with Hex secret..." -ForegroundColor Yellow
+    $token2 = Add-OATHToken -SerialNumber $serialNumbers[1] -SecretKey "3a085cfcd4618c61dc235c300d7a70c4" -SecretFormat Hex -DisplayName "Token for $($users[1])"
+    if ($token2 -and $token2.id) {
+        Write-Host "Added token 2 with Hex secret: $($token2.id)" -ForegroundColor Green
+        $tokens += @{ Token = $token2; User = $users[1]; Index = 2; Secret = "3a085cfcd4618c61dc235c300d7a70c4"; Format = "Hex" }
+    } else {
+        Write-Host "Failed to create token 2" -ForegroundColor Red
+    }
+} catch {
+    Write-Host "Error creating token 2: $_" -ForegroundColor Red
+}
+
+try {
+    Write-Host "Adding token 3 with Text secret..." -ForegroundColor Yellow
+    $token3 = Add-OATHToken -SerialNumber $serialNumbers[2] -SecretKey "MySecretPhrase123!" -SecretFormat Text -DisplayName "Token for $($users[2])"
+    if ($token3 -and $token3.id) {
+        Write-Host "Added token 3 with Text secret: $($token3.id)" -ForegroundColor Green
+        $tokens += @{ Token = $token3; User = $users[2]; Index = 3; Secret = "MySecretPhrase123!"; Format = "Text" }
+    } else {
+        Write-Host "Failed to create token 3" -ForegroundColor Red
+    }
+} catch {
+    Write-Host "Error creating token 3: $_" -ForegroundColor Red
+}
+
+# If no tokens were created, handle the error gracefully
+if ($tokens.Count -eq 0) {
+    Write-Host "`nNo tokens could be created. Skipping assignment and activation steps." -ForegroundColor Red
+}
+
+# Section 2: Assigning tokens to users
+Write-Host "`nPART 2: ASSIGNING TOKENS TO USERS" -ForegroundColor Cyan
+
+$assignedTokens = @()
+
+foreach ($tokenInfo in $tokens) {
+    $token = $tokenInfo.Token
+    $user = $tokenInfo.User
+    $index = $tokenInfo.Index
     
-    if ($user) {
-        Write-Host "Found user:" -ForegroundColor Green
-        Write-Host "  Display Name: $($user.displayName)" -ForegroundColor Yellow
-        Write-Host "  UPN: $($user.userPrincipalName)" -ForegroundColor Yellow
-        Write-Host "  ID: $($user.id)" -ForegroundColor Yellow
+    try {
+        Write-Host "Attempting to assign token $index to $user..." -ForegroundColor Yellow
         
-        #region Step 5: Assign the token to the user
-        Write-Host "`nStep 5: Assign the token to the user" -ForegroundColor Green
-        
-        Write-Host "Assigning token to user..." -ForegroundColor Yellow
-        $assignResult = Set-OATHTokenUser -TokenId $tokenId -UserId $user.id
-        
-        if ($assignResult) {
-            Write-Host "Successfully assigned token to user" -ForegroundColor Green
-            
-            #region Step 6: Activate the token
-            Write-Host "`nStep 6: Activate the token" -ForegroundColor Green
-            
-            # Wait longer for the assignment to propagate in Microsoft Graph
-            Write-Host "Waiting for token assignment to propagate..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 10
-            
-            # Verify the token is properly assigned before attempting activation
-            $assignedToken = Get-OATHToken -TokenId $tokenId
-            if ($assignedToken -and $assignedToken.AssignedToName -match $user.displayName) {
-                Write-Host "Token is properly assigned to $($assignedToken.AssignedToName)" -ForegroundColor Green
-                $tokenAssigned = $true
-            }
-            else {
-                Write-Host "Token assignment verification failed. Current status: $($assignedToken.Status)" -ForegroundColor Yellow
-                Write-Host "Assigned to: $($assignedToken.AssignedToName)" -ForegroundColor Yellow
+        # First try to get the user directly with Get-MgUser
+        $userFound = $false
+        try {
+            $filter = "userPrincipalName eq '$user'"
+            $resolvedUser = Get-MgUser -Filter $filter -ErrorAction Stop
+            if ($resolvedUser) {
+                $userFound = $true
+                Write-Host "Found user: $($resolvedUser.DisplayName)" -ForegroundColor Green
                 
-                # Try to re-assign the token
-                Write-Host "Trying to re-assign the token..." -ForegroundColor Yellow
-                $reassignResult = Set-OATHTokenUser -TokenId $tokenId -UserId $user.id
-                if ($reassignResult) {
-                    Write-Host "Re-assignment successful. Waiting for propagation..." -ForegroundColor Green
-                    Start-Sleep -Seconds 10
-                    $tokenAssigned = $true
-                }
-                else {
-                    Write-Host "Re-assignment failed. Will still attempt activation." -ForegroundColor Red
-                    $tokenAssigned = $false
-                }
-            }
-            
-            # Generate a TOTP code using our implementation
-            Write-Host "Generating TOTP code from the secret..." -ForegroundColor Yellow
-            try {
-                # Make sure we have a valid Base32 secret before continuing
-                if (-not [regex]::IsMatch($base32Secret, '^[A-Z2-7]+=*$')) {
-                    Write-Host "Current secret is not valid Base32. Generating a new one..." -ForegroundColor Yellow
-                    $base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-                    $base32Secret = -join (1..32 | ForEach-Object { $base32Chars[(Get-Random -Minimum 0 -Maximum $base32Chars.Length)] })
-                    Write-Host "New Base32 secret: $base32Secret" -ForegroundColor Yellow
-                }
+                # Use the direct PATCH method to assign the token
+                $tokenEndpoint = "https://graph.microsoft.com/beta/directory/authenticationMethodDevices/hardwareOathDevices/$($token.id)"
+                $body = @{ userId = $resolvedUser.Id } | ConvertTo-Json
                 
-                # Use Get-TOTP directly without any additional parameters
-                $totpCode = Get-TOTP -Secret $base32Secret -InputFormat Base32
-                Write-Host "Current TOTP code: $totpCode" -ForegroundColor Cyan
-                Write-Host "This code will change every 30 seconds" -ForegroundColor Yellow
-            }
-            catch {
-                Write-Host "Error generating TOTP code: $_" -ForegroundColor Red
-                Write-Host "Generating a simpler Base32 secret and new TOTP code..." -ForegroundColor Yellow
-                
-                # Generate a simpler Base32 string to avoid any issues
-                $base32Secret = "JBSWY3DPEB3W64TMMQQHGZLEORZHKIDUMVZXIYLE"
                 try {
-                    $totpCode = Get-TOTP -Secret $base32Secret -InputFormat Base32
-                    Write-Host "Current TOTP code: $totpCode" -ForegroundColor Cyan
+                    Write-Verbose "Assigning token directly with PATCH request"
+                    Invoke-MgGraphRequest -Method PATCH -Uri $tokenEndpoint -Body $body -ContentType "application/json"
+                    Write-Host "Assigned token $index to $user" -ForegroundColor Green
+                    $assignedTokens += $tokenInfo
                 }
                 catch {
-                    Write-Host "Still couldn't generate TOTP code. Using fallback code 123456" -ForegroundColor Red
-                    $totpCode = "123456"
+                    Write-Host "Failed to assign token $index : $($_)" -ForegroundColor Red
                 }
             }
-            
-            $activateNow = Read-Host "Do you want to activate the token now? (Y/N)"
-            if ($activateNow -eq "Y") {
-                Write-Host "Activating token with generated TOTP code..." -ForegroundColor Yellow
-                
-                # Always attempt activation regardless of assignment status check
-                try {
-                    # Try with verification code first
-                    $activateEndpoint = "https://graph.microsoft.com/beta/users/$($user.id)/authentication/hardwareOathMethods/$tokenId/activate"
-                    $activateBody = @{
-                        verificationCode = $totpCode
-                    } | ConvertTo-Json
-                    
-                    Write-Host "Sending direct API activation request with code: $totpCode" -ForegroundColor Cyan
-                    Invoke-MgGraphRequest -Method POST -Uri $activateEndpoint -Body $activateBody -ContentType "application/json"
-                    Write-Host "Successfully activated token using direct API call!" -ForegroundColor Green
-                    $activationSuccessful = $true
-                }
-                catch {
-                    Write-Host "Direct activation failed: $_" -ForegroundColor Red
-                    
-                    Write-Host "Trying with Set-OATHTokenActive cmdlet..." -ForegroundColor Yellow
-                    try {
-                        $activateResult = Set-OATHTokenActive -TokenId $tokenId -UserId $user.id -VerificationCode $totpCode
-                        
-                        if ($activateResult) {
-                            Write-Host "Successfully activated token with Set-OATHTokenActive!" -ForegroundColor Green
-                            $activationSuccessful = $true
-                        }
-                        else {
-                            throw "Set-OATHTokenActive returned false"
-                        }
-                    }
-                    catch {
-                        Write-Host "Cmdlet activation failed: $_" -ForegroundColor Red
-                        $activationSuccessful = $false
-                    }
-                }
-                
-                # If all activation attempts failed, provide troubleshooting info
-                if (-not $activationSuccessful) {
-                    Write-Host "`nActivation troubleshooting information:" -ForegroundColor Magenta
-                    Write-Host "- Token may still be in 'available' status due to propagation delay" -ForegroundColor Yellow
-                    Write-Host "- TOTP code may have expired during propagation" -ForegroundColor Yellow
-                    Write-Host "- Try manually activating later with:" -ForegroundColor Yellow
-                    Write-Host "  Set-OATHTokenActive -TokenId $tokenId -UserId $($user.id) -VerificationCode <new-code>" -ForegroundColor Cyan
-                }
-            }
-            else {
-                Write-Host "Skipping activation." -ForegroundColor Yellow
-            }
-            #endregion
         }
-        else {
-            Write-Host "Failed to assign token to user." -ForegroundColor Red
+        catch {
+            Write-Verbose "Error finding user: $_"
         }
-        #endregion
-    }
-    else {
-        Write-Host "User not found. Skipping assignment." -ForegroundColor Red
+        
+        if (-not $userFound) {
+            Write-Host "User not found: $user" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "Error assigning token $index : $_" -ForegroundColor Red
     }
 }
-else {
-    Write-Host "No user specified. Skipping assignment." -ForegroundColor Yellow
-}
 
-#endregion
+# Section 3: Activating tokens
+Write-Host "`nPART 3: ACTIVATING TOKENS" -ForegroundColor Cyan
 
-#region Step 7: Check token status
-Write-Host "`nStep 7: Check token status" -ForegroundColor Green
-
-# Give time for activation to propagate if we attempted it
-if ($activateNow -eq "Y") {
-    Write-Host "Waiting for status changes to propagate..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 5
-}
-
-$updatedToken = Get-OATHToken -TokenId $tokenId
-Write-Host "Current token status: $($updatedToken.Status)" -ForegroundColor Yellow
-Write-Host "Assigned to: $($updatedToken.AssignedToName)" -ForegroundColor Yellow
-
-# Additional diagnostic information
-if ($updatedToken.Status -eq "available" -and -not [string]::IsNullOrEmpty($updatedToken.AssignedToName)) {
-    Write-Host "Note: Token shows as 'available' but has user assignment - this indicates a propagation delay" -ForegroundColor Yellow
-}
-
-#endregion
-
-#region Step 8: Clean up
-Write-Host "`nStep 8: Clean up" -ForegroundColor Green
-
-$removeNow = Read-Host "Do you want to remove the demo token? (Y/N)"
-if ($removeNow -eq "Y") {
-    Write-Host "Removing token..." -ForegroundColor Yellow
-    $removeResult = Remove-OATHToken -TokenId $tokenId -Force
+foreach ($tokenInfo in $assignedTokens) {
+    $token = $tokenInfo.Token
+    $user = $tokenInfo.User
+    $index = $tokenInfo.Index
+    $secret = $tokenInfo.Secret
+    $format = $tokenInfo.Format
     
-    if ($removeResult) {
-        Write-Host "Successfully removed token." -ForegroundColor Green
-    }
-    else {
-        Write-Host "Failed to remove token." -ForegroundColor Red
+    try {
+        # For demonstration, we'll use the automatic activation with secret
+        Write-Host "Activating token $index for $user with $format secret..." -ForegroundColor Yellow
+        $activation = Set-OATHTokenActive -TokenId $token.id -UserId $user -Secret $secret -SecretFormat $format
+        
+        if ($activation.Success) {
+            if ($activation.AlreadyActivated) {
+                Write-Host "Token $index was already activated for $user" -ForegroundColor Yellow
+            } else {
+                Write-Host "Successfully activated token $index for $user" -ForegroundColor Green
+            }
+        } else {
+            Write-Host "Failed to activate token $index : $($activation.Reason)" -ForegroundColor Red
+            
+            # Try with a generated TOTP code as a fallback
+            if ($format -eq "Base32") {
+                try {
+                    $totpCode = Get-TOTP -Secret $secret
+                    Write-Host "Generated TOTP code: $totpCode. Trying manual activation..." -ForegroundColor Yellow
+                    $manualActivation = Set-OATHTokenActive -TokenId $token.id -UserId $user -VerificationCode $totpCode
+                    
+                    if ($manualActivation.Success) {
+                        Write-Host "Successfully activated token $index with manual TOTP code" -ForegroundColor Green
+                    } else {
+                        Write-Host "Manual activation also failed: $($manualActivation.Reason)" -ForegroundColor Red
+                    }
+                } catch {
+                    Write-Host "Error generating TOTP code: $_" -ForegroundColor Red
+                }
+            }
+        }
+    } catch {
+        Write-Host "Error activating token $index : $_" -ForegroundColor Red
     }
 }
-else {
-    Write-Host "Token will remain in the system with ID: $tokenId" -ForegroundColor Yellow
+
+# Section 4: Demonstrate validation features
+Write-Host "`nPART 4: DEMONSTRATING VALIDATION FEATURES" -ForegroundColor Cyan
+
+# Create sample JSON with both valid and invalid data
+$jsonPath = Join-Path -Path $PWD -ChildPath "sample_tokens.json"
+
+$jsonContent = @"
+{
+  "inventory": [
+    {
+      "serialNumber": "VALID-123456",
+      "secretKey": "JBSWY3DPEHPK3PXP",
+      "manufacturer": "Yubico",
+      "assignTo": {
+        "id": "$($users[0])"
+      }
+    },
+    {
+      "serialNumber": "INVALID-TOO-LONG-123456789012345678901234567890",
+      "secretKey": "INVALID-NOT-BASE32!@#",
+      "hashFunction": "invalid-hash-function"
+    },
+    {
+      "serialNumber": "VALID-WITH-USER",
+      "secretKey": "JBSWY3DPEHPK3PXP",
+      "assignTo": {
+        "id": "nonexistent-user@example.com"
+      }
+    }
+  ]
+}
+"@
+
+Set-Content -Path $jsonPath -Value $jsonContent
+Write-Host "Created sample JSON file with mixed valid/invalid data: $jsonPath" -ForegroundColor Yellow
+
+# Test validation
+$validation = Import-OATHToken -FilePath $jsonPath -TestOnly -DetectSchema
+Write-Host "Validation result success: $($validation.Success)" -ForegroundColor ($validation.Success ? "Green" : "Red")
+Write-Host "Total processed: $($validation.TotalProcessed)" -ForegroundColor White
+Write-Host "Valid entries: $($validation.Valid)" -ForegroundColor Green
+Write-Host "Invalid entries: $($validation.Invalid)" -ForegroundColor Red
+
+if ($validation.ValidationIssues.Count -gt 0) {
+    Write-Host "`nValidation issues:" -ForegroundColor Yellow
+    $validation.ValidationIssues | ForEach-Object { Write-Host "- $_" -ForegroundColor Yellow }
 }
 
-#endregion
+if ($validation.NonexistentUsers.Count -gt 0) {
+    Write-Host "`nNonexistent users:" -ForegroundColor Yellow
+    $validation.NonexistentUsers | ForEach-Object { Write-Host "- $_" -ForegroundColor Yellow }
+}
 
-Write-Host "`nExample workflow complete!" -ForegroundColor Cyan
+# Section 5: Clean up (optional)
+Write-Host "`nPART 5: CLEANUP (OPTIONAL)" -ForegroundColor Cyan
+$response = Read-Host "Do you want to remove the created tokens? (y/n)"
+
+if ($response -eq "y") {
+    foreach ($tokenInfo in $tokens) {
+        $token = $tokenInfo.Token
+        try {
+            if ($token -and $token.id) {
+                Write-Host "Removing token $($tokenInfo.Index)..." -ForegroundColor Yellow
+                $result = Remove-OATHToken -TokenId $token.id -Force -UnassignFirst
+                if ($result) {
+                    Write-Host "Successfully removed token $($tokenInfo.Index)" -ForegroundColor Green
+                } else {
+                    Write-Host "Failed to remove token $($tokenInfo.Index)" -ForegroundColor Red
+                }
+            }
+        } catch {
+            Write-Host "Error removing token $($tokenInfo.Index): $_" -ForegroundColor Red
+        }
+    }
+    
+    if (Test-Path -Path $jsonPath) {
+        Remove-Item -Path $jsonPath -Force
+        Write-Host "Removed test JSON file" -ForegroundColor Green
+    }
+    
+    Write-Host "Cleanup completed." -ForegroundColor Green
+} else {
+    Write-Host "Tokens were not removed. You can manually remove them later." -ForegroundColor Yellow
+}
+
+# Summary
+Write-Host "`nWORKFLOW SUMMARY" -ForegroundColor Cyan
+Write-Host "Added $($tokens.Count) tokens with different secret formats" -ForegroundColor White
+Write-Host "Assigned $($assignedTokens.Count) tokens to users" -ForegroundColor White
+Write-Host "Demonstrated validation features" -ForegroundColor White
+Write-Host "Workflow complete!" -ForegroundColor Green

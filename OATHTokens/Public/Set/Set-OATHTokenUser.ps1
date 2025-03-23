@@ -34,7 +34,7 @@
 
 function Set-OATHTokenUser {
     [CmdletBinding(DefaultParameterSetName = 'AssignById', SupportsShouldProcess = $true)]
-    [OutputType([bool])]
+    [OutputType([PSCustomObject])]
     param(
         [Parameter(ParameterSetName = 'AssignById', Mandatory = $true, Position = 0, ValueFromPipelineByPropertyName = $true)]
         [Parameter(ParameterSetName = 'UnassignById', Mandatory = $true, Position = 0, ValueFromPipelineByPropertyName = $true)]
@@ -74,23 +74,40 @@ function Set-OATHTokenUser {
     
     process {
         try {
+            # Initialize the result object
+            $result = [PSCustomObject]@{
+                Success = $false
+                Operation = if ($Unassign) { "Unassign" } else { "Assign" }
+                TokenId = $null
+                SerialNumber = $null
+                UserId = $UserId
+                UserName = $null
+                PreviousStatus = $null
+                CurrentStatus = $null
+                Reason = $null
+            }
+            
             # Resolve token by ID or serial number
             $targetToken = $null
             
             if ($PSCmdlet.ParameterSetName -like '*ById') {
                 # Validate token ID format
                 if (-not (Test-OATHTokenId -TokenId $TokenId)) {
-                    Write-Error "Invalid token ID format: $TokenId"
-                    return $false
+                    $result.Reason = "Invalid token ID format: $TokenId"
+                    Write-Error $result.Reason
+                    return $result
                 }
+                
+                $result.TokenId = $TokenId
                 
                 # Get token details to check if it's already assigned
                 $endpoint = "$baseEndpoint/$TokenId"
                 try {
                     $targetToken = Invoke-MgGraphWithErrorHandling -Method GET -Uri $endpoint -Verbose:$VerbosePreference
                 } catch {
-                    Write-Error "Token not found with ID: $TokenId"
-                    return $false
+                    $result.Reason = "Token not found with ID: $TokenId"
+                    Write-Error $result.Reason
+                    return $result
                 }
             }
             else {
@@ -99,8 +116,9 @@ function Set-OATHTokenUser {
                 $matchingTokens = $tokens | Where-Object { $_.SerialNumber -eq $SerialNumber }
                 
                 if (-not $matchingTokens -or $matchingTokens.Count -eq 0) {
-                    Write-Error "No token found with serial number: $SerialNumber"
-                    return $false
+                    $result.Reason = "No token found with serial number: $SerialNumber"
+                    Write-Error $result.Reason
+                    return $result
                 }
                 
                 if ($matchingTokens.Count -gt 1) {
@@ -109,12 +127,17 @@ function Set-OATHTokenUser {
                 
                 $targetToken = $matchingTokens | Select-Object -First 1
                 $TokenId = $targetToken.Id
+                $result.TokenId = $TokenId
                 $endpoint = "$baseEndpoint/$TokenId"
             }
             
+            # Update result object with token details
+            $result.SerialNumber = $targetToken.serialNumber ?? $targetToken.SerialNumber
+            $result.PreviousStatus = $targetToken.status ?? $targetToken.Status
+            
             # Define display information for confirmation messages
-            $displayName = if ($targetToken.displayName) { $targetToken.displayName } else { $targetToken.id }
-            $serialDisplay = if ($targetToken.serialNumber) { " (S/N: $($targetToken.serialNumber))" } else { "" }
+            $displayName = if ($targetToken.displayName) { $targetToken.displayName } elseif ($targetToken.DisplayName) { $targetToken.DisplayName } else { $targetToken.id ?? $targetToken.Id }
+            $serialDisplay = if ($targetToken.serialNumber) { " (S/N: $($targetToken.serialNumber))" } elseif ($targetToken.SerialNumber) { " (S/N: $($targetToken.SerialNumber))" } else { "" }
             
             # Handle unassign request
             if ($Unassign) {
@@ -128,8 +151,10 @@ function Set-OATHTokenUser {
                 }
                 
                 if (-not $currentAssigneeId) {
-                    Write-Warning "Token $displayName$serialDisplay is not assigned to any user. No action needed."
-                    return $true
+                    $result.Success = $true
+                    $result.Reason = "Token is not assigned to any user. No action needed."
+                    Write-Warning $result.Reason
+                    return $result
                 }
                 
                 # Get user information for confirmation
@@ -140,6 +165,9 @@ function Set-OATHTokenUser {
                 } else { 
                     "Unknown User" 
                 }
+                
+                $result.UserId = $currentAssigneeId
+                $result.UserName = $assignedToName
                 
                 # Confirm unassignment
                 if ($Force -or $PSCmdlet.ShouldProcess("Token $displayName$serialDisplay from user $assignedToName", "Unassign")) {
@@ -166,19 +194,24 @@ function Set-OATHTokenUser {
                             $unassignSuccess = $true
                         }
                         catch {
-                            Write-Error "Failed to unassign token: $_"
-                            return $false
+                            $result.Reason = "Failed to unassign token: $_"
+                            Write-Error $result.Reason
+                            return $result
                         }
                     }
                     
                     if ($unassignSuccess) {
                         Write-Host "Successfully unassigned token $displayName$serialDisplay from user $assignedToName" -ForegroundColor Green
-                        return $true
+                        
+                        $result.Success = $true
+                        $result.CurrentStatus = "available"
+                        return $result
                     }
                 }
                 else {
-                    Write-Warning "Unassignment canceled by user."
-                    return $false
+                    $result.Reason = "Unassignment canceled by user."
+                    Write-Warning $result.Reason
+                    return $result
                 }
             }
             else {
@@ -202,16 +235,21 @@ function Set-OATHTokenUser {
                         "Unknown User" 
                     }
                     
-                    Write-Error "Token $displayName$serialDisplay is already assigned to user $assignedToName ($currentAssigneeId). Please unassign it first."
-                    return $false
+                    $result.Reason = "Token $displayName$serialDisplay is already assigned to user $assignedToName ($currentAssigneeId). Please unassign it first."
+                    Write-Error $result.Reason
+                    return $result
                 }
                 
                 # Resolve user by ID or UPN
                 $resolvedUser = Get-MgUserByIdentifier -Identifier $UserId
                 if (-not $resolvedUser) {
-                    Write-Error "User not found with identifier: $UserId"
-                    return $false
+                    $result.Reason = "User not found with identifier: $UserId"
+                    Write-Error $result.Reason
+                    return $result
                 }
+                
+                $result.UserId = $resolvedUser.id
+                $result.UserName = $resolvedUser.displayName
                 
                 # Confirm assignment
                 if ($Force -or $PSCmdlet.ShouldProcess("Token $displayName$serialDisplay", "Assign to user $($resolvedUser.displayName)")) {
@@ -258,8 +296,9 @@ function Set-OATHTokenUser {
                                 $assignSuccess = $true
                             }
                             catch {
-                                Write-Error "All assignment methods failed. Last error: $_"
-                                return $false
+                                $result.Reason = "All assignment methods failed. Last error: $_"
+                                Write-Error $result.Reason
+                                return $result
                             }
                         }
                     }
@@ -273,21 +312,26 @@ function Set-OATHTokenUser {
                         $stillAvailable = $availableTokens | Where-Object { $_.Id -eq $TokenId }
                         
                         if ($stillAvailable) {
-                            Write-Warning "API call succeeded but token still shows as available. The assignment may be processing or there may be an issue with the assignment."
+                            $result.Reason = "API call succeeded but token still shows as available. The assignment may be processing or there may be an issue with the assignment."
+                            Write-Warning $result.Reason
                         }
                         
-                        return $true
+                        $result.Success = $true
+                        $result.CurrentStatus = "assigned"
+                        return $result
                     }
                 }
                 else {
-                    Write-Warning "Assignment canceled by user."
-                    return $false
+                    $result.Reason = "Assignment canceled by user."
+                    Write-Warning $result.Reason
+                    return $result
                 }
             }
         }
         catch {
-            Write-Error "Error in Set-OATHTokenUser: $_"
-            return $false
+            $result.Reason = "Error in Set-OATHTokenUser: $_"
+            Write-Error $result.Reason
+            return $result
         }
     }
 }
