@@ -1,0 +1,152 @@
+name: Build, Test and Publish PowerShell Module
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'OATHTokens/**'
+      - 'psgallery.json'
+  workflow_dispatch:
+
+jobs:
+  lint-with-PSScriptAnalyzer:
+    name: Install and run PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer module
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -ErrorAction Stop
+      - name: Lint with PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Invoke-ScriptAnalyzer -Path ./OATHTokens -Recurse -Outvariable issues
+          $errors   = $issues.Where({$_.Severity -eq 'Error'})
+          $warnings = $issues.Where({$_.Severity -eq 'Warning'})
+          if ($errors) {
+              Write-Error "There were $($errors.Count) errors and $($warnings.Count) warnings total." -ErrorAction Stop
+          } else {
+              Write-Output "There were $($errors.Count) errors and $($warnings.Count) warnings total."
+
+  build-and-publish:
+    needs: lint-with-PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetches all history for version comparison
+
+      - name: Check Publishing Configuration
+        id: check-config
+        shell: pwsh
+        run: |
+          # Read the psgallery.json file
+          $config = Get-Content -Path ./psgallery.json | ConvertFrom-Json
+          
+          # Extract publishing settings
+          $modulePath = Join-Path -Path $PWD -ChildPath $config.module
+          $publishVersion = $config.publishSettings.version
+          $shouldPublish = $config.publishSettings.publishThisVersion
+          $releaseNotes = $config.publishSettings.releaseNotes
+          
+          # Check manifest version
+          $manifestPath = Join-Path -Path $modulePath -ChildPath "$($config.module).psd1"
+          $manifestVersion = (Import-PowerShellDataFile -Path $manifestPath).ModuleVersion
+          
+          Write-Host "Module: $($config.module)"
+          Write-Host "Config Version: $publishVersion"
+          Write-Host "Manifest Version: $manifestVersion"
+          Write-Host "Should Publish: $shouldPublish"
+          
+          # Set module name for later steps
+          $moduleName = $config.module
+          echo "module_name=$moduleName" >> $env:GITHUB_OUTPUT
+          
+          # Set outputs
+          echo "module_path=$modulePath" >> $env:GITHUB_OUTPUT
+          echo "config_version=$publishVersion" >> $env:GITHUB_OUTPUT
+          echo "manifest_version=$manifestVersion" >> $env:GITHUB_OUTPUT
+          echo "should_publish=$shouldPublish" >> $env:GITHUB_OUTPUT
+          echo "release_notes=$releaseNotes" >> $env:GITHUB_OUTPUT
+          
+          # Check if manifest version needs updating
+          if ($manifestVersion -ne $publishVersion) {
+            echo "update_manifest=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "update_manifest=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Update Module Manifest if Needed
+        if: steps.check-config.outputs.update_manifest == 'true' && steps.check-config.outputs.should_publish == 'true'
+        shell: pwsh
+        run: |
+          $modulePath = "${{ steps.check-config.outputs.module_path }}"
+          $moduleName = "${{ steps.check-config.outputs.module_name }}"
+          $manifestPath = Join-Path -Path $modulePath -ChildPath "$moduleName.psd1"
+          $newVersion = "${{ steps.check-config.outputs.config_version }}"
+          $releaseNotes = "${{ steps.check-config.outputs.release_notes }}"
+          
+          Write-Host "Updating module manifest to version $newVersion"
+          
+          # Update the manifest version and release notes
+          Update-ModuleManifest -Path $manifestPath -ModuleVersion $newVersion -ReleaseNotes $releaseNotes
+          
+          # Update the module file (.psm1) version
+          $modulePsmPath = Join-Path -Path $modulePath -ChildPath "$moduleName.psm1"
+          $moduleContent = Get-Content -Path $modulePsmPath -Raw
+          
+          $updatedContent = $moduleContent -replace 'Version:\s*(\d+\.\d+\.\d+)', "Version:        $newVersion" `
+                                   -replace 'Dev Version:\s*(\d+\.\d+\.\d+)', "Dev Version:    $newVersion"
+          
+          Set-Content -Path $modulePsmPath -Value $updatedContent
+
+      - name: Test Module
+        shell: pwsh
+        run: |
+          $modulePath = "${{ steps.check-config.outputs.module_path }}"
+          $moduleName = "${{ steps.check-config.outputs.module_name }}"
+          
+          # Import the module to test basic functionality
+          Import-Module $modulePath -Force
+          
+          # List exported commands to verify module loaded correctly
+          Get-Command -Module $moduleName
+          
+          # Check if module manifest is valid
+          Test-ModuleManifest -Path "$modulePath/$moduleName.psd1" -Verbose
+
+      - name: Publish to PowerShell Gallery
+        if: steps.check-config.outputs.should_publish == 'true'
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          Write-Host "Publishing module to PowerShell Gallery..."
+          
+          # Verify API key is available
+          if (-not $env:PSGALLERY_API_KEY) {
+            Write-Error "PowerShell Gallery API key not found in secrets"
+            exit 1
+          }
+          
+          # Set PowerShell Gallery as trusted
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          
+          # Publish the module
+          try {
+            Publish-Module -Path "${{ steps.check-config.outputs.module_path }}" -NuGetApiKey $env:PSGALLERY_API_KEY -Verbose
+            Write-Host "Module published successfully!" -ForegroundColor Green
+            
+            # After successful publishing, update the JSON file to turn off publishing flag
+            $configPath = "./psgallery.json"
+            $config = Get-Content -Path $configPath | ConvertFrom-Json
+            $config.publishSettings.publishThisVersion = $false
+            $config | ConvertTo-Json -Depth 10 | Set-Content -Path $configPath
+            
+            Write-Host "Updated psgallery.json to turn off publishing flag"
+          } catch {
+            Write-Error "Failed to publish module: $_"
+            exit 1

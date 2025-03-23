@@ -9,8 +9,9 @@
     Provides functionality to add, assign, activate, list, and remove hardware OATH tokens.
 .NOTES
     Version:        0.1.0
+    Dev Version:    0.2.0
     Author:         Josh - https://github.com/uniQuk
-    Creation Date:  2023-03-25
+    Creation Date:  2023-03-23
 #>
 
 #region Module Variables

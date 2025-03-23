@@ -369,6 +369,30 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/new-feature`)
 5. Open a Pull Request
 
+### Module Publishing Process
+
+This module is published to the PowerShell Gallery using a simplified configuration-based approach:
+
+1. **Configuration File**:
+   - All publishing settings are controlled through `/psgallery.json`
+   - This file includes the version number, release notes, and a flag to control publishing
+
+2. **Publishing a New Version**:
+   - Update the module code with your changes
+   - Modify `psgallery.json` to:
+     - Increment the version number
+     - Set `publishThisVersion` to `true`
+     - Update the release notes
+   - Commit and push to the main branch
+
+3. **Automated Process**:
+   - GitHub Actions detects the changes
+   - Updates version information in all module files
+   - Publishes to PowerShell Gallery
+   - Automatically disables the publishing flag
+
+For more details, see the workflow documentation in `.github/workflows/README.md`.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -376,5 +400,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgments
 
 - The TOTP implementation is based on RFC 6238 - modified the below script for TOTP.ps1
-- Credits to: https://gist.github.com/jonfriesen/234c7471c3e3199f97d5#file-totp-ps1 
+- Credits to: https://gist.github.com/jonfriesen/234c7471c3e3199f97d5#file-totp-ps1
 
