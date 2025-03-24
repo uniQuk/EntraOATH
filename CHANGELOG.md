@@ -1,6 +1,15 @@
 # Changelog
 All notable changes to the OATH Tokens module will be documented in this file.
 
+## [0.5.0] - 2025-03-25
+### Changed
+- Adopted PowerShell standard pattern for module imports that dot-sources all functions directly
+- Updated `Get-OATHToken` and `Show-OATHTokenMenu` to gracefully handle Graph connection failures
+
+### Fixed
+- Resolved persistent issues with private function accessibility
+- Streamlined the module loading process for better reliability across different environments
+
 ## [0.4.0] - 2025-03-24
 ### Fixed
 - Resolved critical module loading issue where private functions were not accessible when installed from PowerShell Gallery

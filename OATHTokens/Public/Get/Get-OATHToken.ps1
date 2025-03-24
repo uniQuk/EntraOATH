@@ -79,13 +79,18 @@ function Get-OATHToken {
     begin {
         # Ensure we're connected to Graph
         if (-not (Test-MgConnection)) {
-            throw "Microsoft Graph connection required."
+            $script:skipProcessing = $true
+            return $null
         }
         
         $baseEndpoint = "https://graph.microsoft.com/$ApiVersion/directory/authenticationMethodDevices/hardwareOathDevices"
     }
     
     process {
+        # Skip all processing if the connection check failed
+        if ($script:skipProcessing) {
+            return $null
+        }
         try {
             # Handle single token retrieval by ID
             if ($PSCmdlet.ParameterSetName -eq 'ById') {

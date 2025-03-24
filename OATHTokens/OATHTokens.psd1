@@ -3,7 +3,7 @@
     RootModule = 'OATHTokens.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.4.0'
+    ModuleVersion = '0.5.0'
 
     # ID used to uniquely identify this module
     GUID = '21b43a58-8d4f-4d60-9745-f993fb61efc4'
@@ -44,8 +44,7 @@
         'Convert-Base32',  # Use the public wrapper name
         'Show-OATHTokenMenu',
         'Get-TOTP',
-        'Test-TOTP',
-        'Reload-Function'
+        'Test-TOTP'
     )
 
     # Cmdlets to export from this module

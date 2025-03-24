@@ -1,8 +1,8 @@
 {
     "module": "OATHTokens",
     "publishSettings": {
-        "version": "0.4.0",
+        "version": "0.5.0",
         "publishThisVersion": true,
-        "releaseNotes": "Improved module loading, fixed import warnings, and enhanced permission handling. Module now warns about missing Graph API permissions rather than throwing errors, improving usability. Standardized alias creation for better reliability."
+        "releaseNotes": "Improved module loading, fixed import warnings, and enhanced permission handling."
     }
 }

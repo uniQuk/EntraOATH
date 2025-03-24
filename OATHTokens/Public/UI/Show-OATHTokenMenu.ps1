@@ -36,17 +36,25 @@ function Show-OATHTokenMenu {
     begin {
         # Ensure we're connected to Graph
         if (-not (Test-MgConnection)) {
-            throw "Microsoft Graph connection required. Please run Connect-MgGraph with appropriate scopes first."
+            # Write-Warning "Microsoft Graph connection required. Please run Connect-MgGraph with appropriate scopes first."
+            # Set a flag to indicate we should skip processing
+            $script:skipProcessing = $true
+            return $null
         }
         
         # Set console colors
-        $headerColor = 'Cyan'
-        $promptColor = 'Yellow'
-        $successColor = 'Green'
-        $errorColor = 'Red'
+        $script:headerColor = [System.ConsoleColor]::Cyan
+        $script:promptColor = [System.ConsoleColor]::Yellow
+        $script:successColor = [System.ConsoleColor]::Green
+        $script:errorColor = [System.ConsoleColor]::Red
+        $script:skipProcessing = $false
     }
     
     process {
+        # Skip all processing if the connection check failed
+        if ($script:skipProcessing) {
+            return $null
+        }
         # Main menu function
         function Show-MainMenu {
             Clear-Host
