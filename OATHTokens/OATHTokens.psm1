@@ -8,8 +8,8 @@
     PowerShell module for managing OATH tokens in Microsoft Entra ID via Microsoft Graph API.
     Provides functionality to add, assign, activate, list, and remove hardware OATH tokens.
 .NOTES
-    Version:        0.3.0
-    Dev Version:    0.3.0
+    Version:        0.4.0
+    Dev Version:    0.4.0
     Author:         Josh - https://github.com/uniQuk
     Creation Date:  2025-03-23
 #>
@@ -18,6 +18,9 @@
 $Script:OATHApiVersion = "beta"  # API version for Microsoft Graph
 $Script:OATHTokenEndpoint = "https://graph.microsoft.com/$Script:OATHApiVersion/directory/authenticationMethodDevices/hardwareOathDevices"
 #endregion
+
+# Create a container for all private functions that will be available to public functions
+$Script:PrivateFunctions = @{}
 
 # Import all functions in the correct order to respect dependencies
 # 1. Private utility functions first (no dependencies)
@@ -46,6 +49,16 @@ foreach ($privateModulePath in $privateLoadOrder) {
                 try {
                     Write-Verbose "Importing private module file: $($file.FullName)"
                     . $file.FullName
+                    
+                    # After sourcing the file, check for newly defined functions and add them to our private functions container
+                    $definedFunctions = Get-ChildItem -Path Function: | Where-Object {
+                        $_.ScriptBlock.File -and $_.ScriptBlock.File -eq $file.FullName
+                    }
+                    
+                    foreach ($func in $definedFunctions) {
+                        $Script:PrivateFunctions[$func.Name] = $func.ScriptBlock
+                        Write-Verbose "Registered private function: $($func.Name)"
+                    }
                 }
                 catch {
                     Write-Error "Failed to import private module file $($file.Name): $_"
@@ -60,12 +73,29 @@ foreach ($privateModulePath in $privateLoadOrder) {
             try {
                 Write-Verbose "Importing private module file: $($file.FullName)"
                 . $file.FullName
+                
+                # After sourcing the file, check for newly defined functions and add them to our private functions container
+                $definedFunctions = Get-ChildItem -Path Function: | Where-Object {
+                    $_.ScriptBlock.File -and $_.ScriptBlock.File -eq $file.FullName
+                }
+                
+                foreach ($func in $definedFunctions) {
+                    $Script:PrivateFunctions[$func.Name] = $func.ScriptBlock
+                    Write-Verbose "Registered private function: $($func.Name)"
+                }
             }
             catch {
                 Write-Error "Failed to import private module file $($file.Name): $_"
             }
         }
     }
+}
+
+# Create wrapper functions for each private function that will be accessible to public functions
+foreach ($funcName in $Script:PrivateFunctions.Keys) {
+    # Make the function available in the module's scope
+    Set-Item -Path "function:script:$funcName" -Value $Script:PrivateFunctions[$funcName]
+    Write-Verbose "Created script-level function for: $funcName"
 }
 
 # Define the order of public function categories to load
@@ -91,7 +121,7 @@ foreach ($category in $publicCategories) {
                 . $file.FullName
             }
             catch {
-                Write-Error "Failed to import public module file $($file.Name): $_"
+                Write-Error "Failed to import public module file $($file.Name) : $_"
             }
         }
     }

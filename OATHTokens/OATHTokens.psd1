@@ -3,7 +3,7 @@
     RootModule = 'OATHTokens.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.3.0'
+    ModuleVersion = '0.4.0'
 
     # ID used to uniquely identify this module
     GUID = '21b43a58-8d4f-4d60-9745-f993fb61efc4'
@@ -72,7 +72,7 @@
             ProjectUri = 'https://github.com/uniQuk/EntraOATH'
 
             # ReleaseNotes of this module
-            ReleaseNotes = 'Initial release of the OATH Token Management module'
+            ReleaseNotes = 'Improved module loading, fixed import warnings, and enhanced permission handling. Module now warns about missing Graph API permissions rather than throwing errors, improving usability. Standardized alias creation for better reliability.'
         }
     }
 }
