@@ -216,5 +216,7 @@ function Set-OATHTokenActive {
     }
 }
 
-# Add alias for backward compatibility
-New-Alias -Name 'Activate-HardwareOathToken' -Value 'Set-OATHTokenActive'
+# Add alias for backward compatibility - only if it doesn't already exist
+if (-not (Get-Alias -Name 'Activate-HardwareOathToken' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Activate-HardwareOathToken' -Value 'Set-OATHTokenActive'
+}

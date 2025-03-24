@@ -169,5 +169,7 @@ function Remove-OATHToken {
     }
 }
 
-# Add alias for backward compatibility
-New-Alias -Name 'Remove-HardwareOathToken' -Value 'Remove-OATHToken'
+# Add alias for backward compatibility - only if it doesn't already exist
+if (-not (Get-Alias -Name 'Remove-HardwareOathToken' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Remove-HardwareOathToken' -Value 'Remove-OATHToken'
+}

@@ -467,5 +467,7 @@ function Show-OATHTokenMenu {
     }
 }
 
-# Add alias for backward compatibility
-New-Alias -Name 'Show-HardwareOathTokenMenu' -Value 'Show-OATHTokenMenu'
+# Add alias for backward compatibility - only if it doesn't already exist
+if (-not (Get-Alias -Name 'Show-HardwareOathTokenMenu' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Show-HardwareOathTokenMenu' -Value 'Show-OATHTokenMenu'
+}

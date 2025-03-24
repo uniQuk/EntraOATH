@@ -8,10 +8,10 @@
     PowerShell module for managing OATH tokens in Microsoft Entra ID via Microsoft Graph API.
     Provides functionality to add, assign, activate, list, and remove hardware OATH tokens.
 .NOTES
-    Version:        0.1.0
-    Dev Version:    0.2.0
+    Version:        0.3.0
+    Dev Version:    0.3.0
     Author:         Josh - https://github.com/uniQuk
-    Creation Date:  2023-03-23
+    Creation Date:  2025-03-23
 #>
 
 #region Module Variables
@@ -19,67 +19,79 @@ $Script:OATHApiVersion = "beta"  # API version for Microsoft Graph
 $Script:OATHTokenEndpoint = "https://graph.microsoft.com/$Script:OATHApiVersion/directory/authenticationMethodDevices/hardwareOathDevices"
 #endregion
 
-#region Helper Functions
+# Import all functions in the correct order to respect dependencies
+# 1. Private utility functions first (no dependencies)
+# 2. Private functions with dependencies on utilities
+# 3. Public functions that depend on private functions
 
-# Check if Microsoft Graph connection is established
-function Test-GraphConnection {
-    [CmdletBinding()]
-    param()
+# Define the order of private module folders to ensure dependencies are loaded first
+$privateLoadOrder = @(
+    # Core Utilities (no dependencies)
+    "Private\Base32Conversion.ps1",  # Base functionality with no dependencies
+    "Private\ValidationHelpers.ps1",  # Basic validation functions
+    "Private\GraphHelpers.ps1",       # Graph API helpers
     
-    try {
-        $context = Get-MgContext -ErrorAction Stop
-        if (-not $context) {
-            Write-Warning "Not connected to Microsoft Graph. Please run Connect-MgGraph first."
-            return $false
-        }
-        
-        # Verify required permissions
-        $requiredScopes = @(
-            "Policy.ReadWrite.AuthenticationMethod",
-            "Directory.Read.All"
-        )
-        
-        $hasRequiredScopes = $true
-        foreach ($scope in $requiredScopes) {
-            if ($context.Scopes -notcontains $scope) {
-                $hasRequiredScopes = $false
-                Write-Warning "Missing required permission: $scope"
+    # Other private functions
+    "Private\*.ps1"                   # Any remaining private functions
+)
+
+# Load private functions in the defined order
+foreach ($privateModulePath in $privateLoadOrder) {
+    # For specific files
+    if ($privateModulePath -notlike "*\*.*") {
+        $privatePath = Join-Path -Path $PSScriptRoot -ChildPath $privateModulePath
+        if (Test-Path -Path $privatePath -PathType Container) {
+            $files = Get-ChildItem -Path $privatePath -Filter "*.ps1" -Recurse
+            foreach ($file in $files) {
+                try {
+                    Write-Verbose "Importing private module file: $($file.FullName)"
+                    . $file.FullName
+                }
+                catch {
+                    Write-Error "Failed to import private module file $($file.Name): $_"
+                }
             }
         }
-        
-        if (-not $hasRequiredScopes) {
-            Write-Warning "Please connect with: Connect-MgGraph -Scopes $($requiredScopes -join ',')"
-            return $false
-        }
-        
-        return $true
     }
-    catch {
-        Write-Warning "Error checking Graph connection: $_"
-        return $false
+    else {
+        # For specific file patterns
+        $files = Get-ChildItem -Path $PSScriptRoot -Include $privateModulePath -Recurse
+        foreach ($file in $files) {
+            try {
+                Write-Verbose "Importing private module file: $($file.FullName)"
+                . $file.FullName
+            }
+            catch {
+                Write-Error "Failed to import private module file $($file.Name): $_"
+            }
+        }
     }
 }
 
-#endregion
+# Define the order of public function categories to load
+$publicCategories = @(
+    "Public\Utility",  # Base utility functions first (like Convert-Base32)
+    "Public\Get",      # Get functions next as many other functions depend on them
+    "Public\Set",      # Set functions next
+    "Public\Add",      # Add functions
+    "Public\Remove",   # Remove functions
+    "Public\Import",   # Import/Export functions
+    "Public\Export",   # Import/Export functions 
+    "Public\UI"        # UI functions last as they depend on everything else
+)
 
-#region Module Initialization
-
-# Import all functions
-$functionTypes = @('Private', 'Public')
-
-foreach ($functionType in $functionTypes) {
-    $functionPath = Join-Path -Path $PSScriptRoot -ChildPath $functionType
-    
-    if (Test-Path -Path $functionPath) {
-        $functionFiles = Get-ChildItem -Path $functionPath -Filter '*.ps1' -Recurse
-        
-        foreach ($function in $functionFiles) {
+# Load public functions in the defined order
+foreach ($category in $publicCategories) {
+    $publicPath = Join-Path -Path $PSScriptRoot -ChildPath $category
+    if (Test-Path -Path $publicPath -PathType Container) {
+        $files = Get-ChildItem -Path $publicPath -Filter "*.ps1" -Recurse
+        foreach ($file in $files) {
             try {
-                Write-Verbose "Importing function: $($function.Name)"
-                . $function.FullName
+                Write-Verbose "Importing public module file: $($file.FullName)"
+                . $file.FullName
             }
             catch {
-                Write-Error "Failed to import function $($function.Name): $_"
+                Write-Error "Failed to import public module file $($file.Name): $_"
             }
         }
     }
@@ -105,5 +117,3 @@ if (Test-Path -Path $manifestPath) {
 
 # Log module loading
 Write-Verbose "OATH Token Management module loaded"
-
-#endregion

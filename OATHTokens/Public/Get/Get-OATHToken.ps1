@@ -192,5 +192,7 @@ function Get-OATHToken {
 # Add type formatting for better console display
 Update-TypeData -TypeName 'OATHToken' -DefaultDisplayPropertySet Id, SerialNumber, DisplayName, Status, AssignedToName -ErrorAction SilentlyContinue
 
-# Add alias for backward compatibility
-New-Alias -Name 'Get-HardwareOathTokens' -Value 'Get-OATHToken'
+# Add alias for backward compatibility - only if it doesn't already exist
+if (-not (Get-Alias -Name 'Get-HardwareOathTokens' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Get-HardwareOathTokens' -Value 'Get-OATHToken'
+}

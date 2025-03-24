@@ -180,5 +180,7 @@ function Export-OATHToken {
     }
 }
 
-# Add alias for backward compatibility
-New-Alias -Name 'Export-HardwareOathTokensToCsv' -Value 'Export-OATHToken'
+# Add alias for backward compatibility - only if it doesn't already exist
+if (-not (Get-Alias -Name 'Export-HardwareOathTokensToCsv' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Export-HardwareOathTokensToCsv' -Value 'Export-OATHToken'
+}

@@ -15,10 +15,7 @@ function Convert-Base32 {
     
     process {
         try {
-            # Source the private function directly - this avoids the script: scope issues
-            . "$PSScriptRoot\..\..\Private\Base32Conversion.ps1"
-            
-            # Now call the function directly instead of through a script variable
+            #  Call private helper function
             ConvertTo-Base32 -InputString $InputString -InputFormat $InputFormat -NoValidation:$NoValidation
         }
         catch {
@@ -27,5 +24,7 @@ function Convert-Base32 {
     }
 }
 
-# Create an alias for backward compatibility
-New-Alias -Name 'Convert-Base32String' -Value 'Convert-Base32'
+# Create an alias for backward compatibility - only if it doesn't already exist
+if (-not (Get-Alias -Name 'Convert-Base32String' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Convert-Base32String' -Value 'Convert-Base32'
+}

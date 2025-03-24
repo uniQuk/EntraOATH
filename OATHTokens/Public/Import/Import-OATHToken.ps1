@@ -455,6 +455,10 @@ function Import-OATHToken {
     }
 }
 
-# Add aliases for backward compatibility
-New-Alias -Name 'Add-BulkHardwareOathTokens' -Value 'Import-OATHToken' 
-New-Alias -Name 'Add-BulkHardwareOathTokensToUsers' -Value 'Import-OATHToken'
+# Add aliases for backward compatibility - only if they don't already exist
+if (-not (Get-Alias -Name 'Add-BulkHardwareOathTokens' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Add-BulkHardwareOathTokens' -Value 'Import-OATHToken'
+}
+if (-not (Get-Alias -Name 'Add-BulkHardwareOathTokensToUsers' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Add-BulkHardwareOathTokensToUsers' -Value 'Import-OATHToken'
+}

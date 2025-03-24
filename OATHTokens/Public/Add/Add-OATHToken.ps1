@@ -266,5 +266,7 @@ function Add-OATHToken {
     }
 }
 
-# Add alias for backward compatibility
-New-Alias -Name 'Add-HardwareOathToken' -Value 'Add-OATHToken'
+# Add alias for backward compatibility - only if it doesn't already exist
+if (-not (Get-Alias -Name 'Add-HardwareOathToken' -ErrorAction SilentlyContinue)) {
+    New-Alias -Name 'Add-HardwareOathToken' -Value 'Add-OATHToken'
+}

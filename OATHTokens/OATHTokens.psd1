@@ -3,7 +3,7 @@
     RootModule = 'OATHTokens.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.0'
+    ModuleVersion = '0.3.0'
 
     # ID used to uniquely identify this module
     GUID = '21b43a58-8d4f-4d60-9745-f993fb61efc4'
