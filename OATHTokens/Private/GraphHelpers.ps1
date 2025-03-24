@@ -36,9 +36,10 @@ function Test-MgConnection {
         
         if ($missingScopes.Count -gt 0) {
             $scopeString = $RequiredScopes -join "',''"
-            Write-Warning "Missing required Microsoft Graph permissions: $($missingScopes -join ', ')"
-            Write-Warning "Please reconnect with: Connect-MgGraph -Scopes '$scopeString'"
-            return $false
+            Write-Warning "Missing recommended Microsoft Graph permissions: $($missingScopes -join ', ')"
+            Write-Warning "Consider reconnecting with: Connect-MgGraph -Scopes '$scopeString'"
+            # Still return true since we have a connection, just missing permissions
+            # Let Graph API handle permission errors naturally
         }
         
         return $true
