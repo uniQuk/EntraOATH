@@ -4,8 +4,6 @@ A comprehensive PowerShell module for managing hardware OATH tokens in Microsoft
 
 [Manage OATH Tokens in Entra](https://learn.microsoft.com/en-us/entra/identity/authentication/how-to-mfa-manage-oath-tokens#scenario-admin-creates-token-that-users-self-assign-and-activate)
 
-
-
 ## Overview
 
 The OATH Token Management module provides a complete solution for managing OATH-TOTP hardware tokens (such as YubiKeys) in Microsoft Entra ID. It offers both a command-line interface with individual cmdlets and an interactive menu system, making it suitable for both scripted automation and interactive use.
@@ -141,20 +139,23 @@ The module is organized into the following components:
 {
   "inventory": [
     {
-      "serialNumber": "12345678",
-      "secretKey": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+      "serialNumber": "YK-12345",
+      "secretKey": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
+      "manufacturer": "Yubico",
+      "model": "YubiKey 5"
     },
     {
-      "serialNumber": "87654321",
+      "serialNumber": "YK-67890",
       "secretKey": "3a085cfcd4618c61dc235c300d7a70c4",
       "secretFormat": "hex",
       "manufacturer": "Yubico",
       "model": "YubiKey 5 NFC"
     },
     {
-      "serialNumber": "11223344",
+      "serialNumber": "YK-ABCDE",
       "secretKey": "MySecretPassword123",
-      "secretFormat": "text"
+      "secretFormat": "text",
+      "displayName": "My Special YubiKey"
     }
   ]
 }
@@ -166,7 +167,7 @@ The module is organized into the following components:
 {
   "inventory": [
     {
-      "serialNumber": "12345678",
+      "serialNumber": "YK-12345",
       "secretKey": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
       "assignTo": {
         "id": "user@example.com"
@@ -175,8 +176,39 @@ The module is organized into the following components:
   ],
   "assignments": [
     {
-      "userId": "user@example.com",
-      "tokenId": "00000000-0000-0000-0000-000000000000"
+      "tokenId": "00000000-0000-0000-0000-000000000000",
+      "userId": "user@example.com"
+    },
+    {
+      "tokenId": "11111111-1111-1111-1111-111111111111",
+      "userId": "80d2efac-c489-49d5-b074-df2ed4dde02d"
+    }
+  ]
+}
+```
+
+### Mixed Schema Example
+
+```json
+{
+  "inventory": [
+    {
+      "serialNumber": "YK-30001",
+      "secretKey": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    },
+    {
+      "serialNumber": "YK-30002",
+      "secretKey": "48656c6c6f20576f726c6422",
+      "secretFormat": "hex",
+      "assignTo": {
+        "id": "user@example.com"
+      }
+    }
+  ],
+  "assignments": [
+    {
+      "tokenId": "00000000-0000-0000-0000-000000000000",
+      "userId": "00000000-0000-0000-0000-000000000001"
     }
   ]
 }
@@ -195,6 +227,9 @@ Add-OATHToken -SerialNumber "87654321" -SecretKey "3a085cfcd4618c61dc235c300d7a7
 
 # Add a token with a text secret
 Add-OATHToken -SerialNumber "11223344" -SecretKey "MySecretPassword123" -SecretFormat Text
+
+# Add a token and assign to user directly
+Add-OATHToken -SerialNumber "12345678" -SecretKey "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" -UserId "user@example.com"
 ```
 
 ### Finding Tokens
@@ -221,6 +256,9 @@ Get-OATHToken -UserId "user@example.com"
 ```powershell
 # Assign by token ID
 Set-OATHTokenUser -TokenId "00000000-0000-0000-0000-000000000000" -UserId "user@example.com"
+
+# Assign by serial number
+Set-OATHTokenUser -SerialNumber "12345678" -UserId "user@example.com"
 
 # Unassign a token
 Set-OATHTokenUser -TokenId "00000000-0000-0000-0000-000000000000" -Unassign
@@ -265,6 +303,35 @@ Get-TOTP -Secret "3a085cfcd4618c61dc235c300d7a70c4" -InputFormat Hex
 Get-TOTP -Secret "MySecretPassword123" -InputFormat Text
 ```
 
+## Interactive Menu Navigation
+
+The module provides an intuitive menu-based interface for managing OATH tokens:
+
+### Main Menu
+- **Get OATH**: Lists and exports tokens
+- **Add OATH**: Adds, assigns, and activates tokens
+- **Remove OATH**: Removes and unassigns tokens
+
+### Get OATH Menu
+- List All
+- List Available
+- List Activated
+- Export to CSV
+- Find by Serial Number
+- Find by User ID/UPN
+
+### Add OATH Menu
+- Add OATH Token
+- Assign OATH User
+- Activate OATH Token
+- Bulk Import OATH Tokens
+- Activate with TOTP
+
+### Remove OATH Menu
+- Remove OATH
+- Bulk Remove OATH
+- Unassign OATH token
+
 ## Advanced Scenarios
 
 ### Automating Token Setup
@@ -277,7 +344,7 @@ $serialNumber = New-OATHTokenSerial -Prefix "YK-" -Format Alphanumeric -CheckExi
 
 # Generate a random secret
 $secret = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object {[char]$_})
-$base32Secret = ConvertTo-Base32 -InputString $secret -IsTextSecret
+$base32Secret = Convert-Base32 -InputString $secret -InputFormat Text
 
 # Add the token
 $token = Add-OATHToken -SerialNumber $serialNumber -SecretKey $base32Secret
@@ -310,7 +377,7 @@ function New-UserOnboarding {
     
     # Generate a token
     $serialNumber = New-OATHTokenSerial -CheckExisting
-    $secretKey = ConvertTo-Base32 -InputString ([Guid]::NewGuid().ToString()) -IsTextSecret
+    $secretKey = Convert-Base32 -InputString ([Guid]::NewGuid().ToString()) -InputFormat Text
     
     # Add and assign the token
     $token = Add-OATHToken -SerialNumber $serialNumber -SecretKey $secretKey
@@ -341,6 +408,9 @@ function New-UserOnboarding {
 
 - **Error: Token activation failed**
   - Solution: Ensure the verification code is valid and has not expired
+
+- **Error: Assignment seems to succeed but token shows as available**
+  - Solution: Verify the user ID is correct and use `-Verbose` flag to check assignment process details
 
 ### Diagnostic Steps
 
@@ -399,6 +469,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- The TOTP implementation is based on RFC 6238 - modified the below script for TOTP.ps1
+- The TOTP implementation is based on RFC 6238
 - Credits to: https://gist.github.com/jonfriesen/234c7471c3e3199f97d5#file-totp-ps1
 

@@ -127,10 +127,56 @@ Then import:
 Import-OATHToken -FilePath "C:\path\to\tokens.json" -Format JSON
 ```
 
+### Import Tokens with Separate Assignment Information
+
+Create a JSON file that includes both inventory and assignments:
+
+```json
+{
+  "inventory": [
+    {
+      "serialNumber": "YK123456",
+      "secretKey": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    },
+    {
+      "serialNumber": "YK789012",
+      "secretKey": "48656c6c6f20576f726c6421",
+      "secretFormat": "hex"
+    }
+  ],
+  "assignments": [
+    {
+      "tokenId": "00000000-0000-0000-0000-000000000000",
+      "userId": "80d2efac-c489-49d5-b074-df2ed4dde02d"
+    },
+    {
+      "tokenId": "11111111-1111-1111-1111-111111111111",
+      "userId": "user@example.com"
+    }
+  ]
+}
+```
+
+Then import:
+
+```powershell
+# Import new tokens and also process assignments
+Import-OATHToken -FilePath "C:\path\to\tokens.json" -Format JSON -SchemaType Mixed
+
+# Import only assignments for existing tokens
+Import-OATHToken -FilePath "C:\path\to\assignments.json" -Format JSON -SchemaType UserAssignments
+```
+
 ### Export Tokens to CSV
 
 ```powershell
 Export-OATHToken -FilePath "C:\path\to\export.csv"
+```
+
+### Export Tokens to JSON
+
+```powershell
+Export-OATHToken -FilePath "C:\path\to\export.json" -Format JSON
 ```
 
 ## Utility Functions
@@ -166,6 +212,33 @@ For an interactive experience, use the menu system:
 Show-OATHTokenMenu
 ```
 
+The menu system provides the following options:
+
+### Main Menu
+- **Get OATH**: View and manage existing tokens
+- **Add OATH**: Add new tokens and assign to users
+- **Remove OATH**: Remove or unassign tokens
+
+### Get OATH Menu
+- **List All**: Shows all tokens in the tenant
+- **List Available**: Shows only unassigned tokens
+- **List Activated**: Shows only activated tokens
+- **Export to CSV**: Export token list to CSV file
+- **Find by Serial Number**: Search tokens by serial number
+- **Find by User ID/UPN**: Find tokens assigned to a specific user
+
+### Add OATH Menu
+- **Add OATH Token**: Add a single token with optional user assignment
+- **Assign OATH User**: Assign an existing token to a user
+- **Activate OATH Token**: Activate a token with a verification code
+- **Bulk Import OATH Tokens**: Import multiple tokens from a file
+- **Activate with TOTP**: Activate a token using its secret key
+
+### Remove OATH Menu
+- **Remove OATH**: Remove a single token
+- **Bulk Remove OATH**: Remove multiple tokens from a file
+- **Unassign OATH token**: Unassign a token from its user
+
 ## Additional Help
 
 To get detailed help for any command, use:
@@ -178,4 +251,12 @@ For example:
 
 ```powershell
 Get-Help Add-OATHToken -Full
+```
+
+## Troubleshooting Tips
+
+If you encounter issues with token assignment, try running with verbose output:
+
+```powershell
+Set-OATHTokenUser -TokenId "00000000-0000-0000-0000-000000000000" -UserId "user@example.com" -Verbose
 ```

@@ -8,7 +8,7 @@
     PowerShell module for managing OATH tokens in Microsoft Entra ID via Microsoft Graph API.
     Provides functionality to add, assign, activate, list, and remove hardware OATH tokens.
 .NOTES
-    Version:        0.5.1
+    Version:        0.6.0
     Dev Version:    0.5.1
     Author:         Josh - https://github.com/uniQuk
     Creation Date:  2025-03-23

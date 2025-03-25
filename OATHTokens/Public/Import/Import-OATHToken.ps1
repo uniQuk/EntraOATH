@@ -11,9 +11,10 @@
 .PARAMETER Format
     The format of the input data. Options are JSON, CSV
 .PARAMETER SchemaType
-    The schema type of the input data. Options are Inventory, UserAssignments
+    The schema type of the input data. Options are Inventory, UserAssignments, Mixed
 .PARAMETER AssignToUsers
-    When specified, attempts to assign tokens to users during import
+    When specified as $false, skips user assignment even if tokens have assignTo properties.
+    Defaults to $true to process user assignments automatically.
 .PARAMETER Force
     Skips confirmation prompts
 .PARAMETER Delimiter
@@ -21,16 +22,15 @@
 .EXAMPLE
     Import-OATHToken -FilePath "C:\Temp\tokens.json" -Format JSON
     
-    Imports tokens from a JSON file using the default schema
+    Imports tokens from a JSON file using the default schema and assigns users automatically
 .EXAMPLE
-    Import-OATHToken -FilePath "C:\Temp\tokens_with_users.json" -SchemaType UserAssignments -AssignToUsers
+    Import-OATHToken -FilePath "C:\Temp\tokens.json" -Format JSON -AssignToUsers:$false
     
-    Imports tokens from a JSON file and assigns them to the specified users
+    Imports tokens from a JSON file but skips user assignments even if specified in the file
 .EXAMPLE
-    $tokens = Import-Csv -Path "C:\Temp\tokens.csv"
-    Import-OATHToken -InputObject $tokens -Format CSV
+    Import-OATHToken -FilePath "C:\Temp\tokens.csv" -Format CSV
     
-    Imports tokens from a CSV file that was already loaded
+    Imports tokens from a CSV file and assigns users automatically if specified
 .EXAMPLE
     Import-OATHToken -FilePath "C:\Temp\tokens.csv" -Format CSV -Delimiter "`t"
     
@@ -55,11 +55,11 @@ function Import-OATHToken {
         [string]$Format,
         
         [Parameter()]
-        [ValidateSet('Inventory', 'UserAssignments')]
-        [string]$SchemaType = 'Inventory',
+        [ValidateSet('Inventory', 'UserAssignments', 'Mixed')]
+        [string]$SchemaType = 'Mixed',
         
         [Parameter()]
-        [switch]$AssignToUsers,
+        [bool]$AssignToUsers = $true,
         
         [Parameter()]
         [switch]$Force,
@@ -97,7 +97,7 @@ function Import-OATHToken {
                 [object[]]$InputData,
                 
                 [Parameter()]
-                [switch]$HasUserAssignments
+                [bool]$ProcessUserAssignments = $true
             )
             
             $tokens = [System.Collections.Generic.List[object]]::new()
@@ -185,23 +185,62 @@ function Import-OATHToken {
                 }
                 
                 # User assignment
-                if ($HasUserAssignments) {
+                if ($ProcessUserAssignments) {
+                    $userId = $null
+                    
                     if ($item.PSObject.Properties.Name -contains 'assignTo') {
-                        $token['assignTo'] = $item.assignTo
+                        if ($item.assignTo -and $item.assignTo.id) {
+                            $userId = $item.assignTo.id
+                        }
+                        else {
+                            Write-Warning "Token $($token.serialNumber): assignTo property has invalid format"
+                        }
                     }
                     elseif ($item.PSObject.Properties.Name -contains 'AssignTo') {
-                        $token['assignTo'] = $item.AssignTo
+                        if ($item.AssignTo -and $item.AssignTo.id) {
+                            $userId = $item.AssignTo.id
+                        }
+                        else {
+                            Write-Warning "Token $($token.serialNumber): AssignTo property has invalid format"
+                        }
                     }
                     elseif ($item.PSObject.Properties.Name -contains 'userId' -or 
                            $item.PSObject.Properties.Name -contains 'UserId') {
                         $userId = if ($item.userId) { $item.userId } else { $item.UserId }
-                        $token['assignTo'] = @{ id = $userId }
                     }
                     # Handle export format
                     elseif ($isExportFormat -and 
                            $item.PSObject.Properties.Name -contains 'AssignedToUpn' -and 
                            -not [string]::IsNullOrWhiteSpace($item.AssignedToUpn)) {
-                        $token['assignTo'] = @{ id = $item.AssignedToUpn }
+                        $userId = $item.AssignedToUpn
+                    }
+                    
+                    # If userId is not empty, try to resolve it
+                    if (-not [string]::IsNullOrWhiteSpace($userId)) {
+                        # Check if it's not already a GUID
+                        if (-not ($userId -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')) {
+                            try {
+                                # Resolve UPN to user ID
+                                $resolvedUser = Get-MgUserByIdentifier -Identifier $userId
+                                if ($resolvedUser) {
+                                    Write-Verbose "Resolved user identifier '$userId' to ID: $($resolvedUser.id)"
+                                    $userId = $resolvedUser.id
+                                }
+                                else {
+                                    Write-Warning "Token $($token.serialNumber): Could not resolve user: $userId"
+                                    $userId = $null
+                                }
+                            }
+                            catch {
+                                Write-Warning "Error resolving user $userId`: $_"
+                                $userId = $null
+                            }
+                        }
+                        
+                        # Add the resolved user ID to the token
+                        if (-not [string]::IsNullOrWhiteSpace($userId)) {
+                            $token['assignTo'] = @{ id = $userId }
+                        }
                     }
                 }
                 
@@ -219,7 +258,7 @@ function Import-OATHToken {
                 [object]$JsonData,
                 
                 [Parameter(Mandatory = $true)]
-                [ValidateSet('Inventory', 'UserAssignments')]
+                [ValidateSet('Inventory', 'UserAssignments', 'Mixed')]
                 [string]$SchemaType
             )
             
@@ -253,6 +292,19 @@ function Import-OATHToken {
                         }
                         
                         return $true
+                    }
+                    'Mixed' {
+                        # Most flexible schema - allow any valid combination
+                        if ($JsonData.PSObject.Properties.Name -contains 'inventory' -and $JsonData.inventory -is [array]) {
+                            return $true
+                        }
+                        elseif ($JsonData.PSObject.Properties.Name -contains 'assignments' -and $JsonData.assignments -is [array]) {
+                            return $true
+                        }
+                        else {
+                            Write-Error "JSON must contain either an 'inventory' array (which may include 'assignTo' properties) or an 'assignments' array."
+                            return $false
+                        }
                     }
                     default {
                         Write-Error "Unsupported schema type: $SchemaType"
@@ -297,100 +349,205 @@ function Import-OATHToken {
                             throw "Invalid JSON schema for type $SchemaType."
                         }
                         
-                        if ($SchemaType -eq 'Inventory') {
-                            $tokens = ConvertTo-TokenObjects -InputData $inputData.inventory -HasUserAssignments:$AssignToUsers
+                        # Process tokens based on schema type and what's available in the file
+                        $processInventory = $true
+                        $processAssignments = $AssignToUsers
+                        
+                        # Determine what to process based on SchemaType
+                        if ($SchemaType -eq 'UserAssignments' -and $inputData.PSObject.Properties.Name -contains 'assignments') {
+                            # When SchemaType is UserAssignments and assignments array exists, prioritize it
+                            $processInventory = $false
+                            $processAssignments = $true
                         }
-                        elseif ($SchemaType -eq 'UserAssignments') {
-                            if ($inputData.PSObject.Properties.Name -contains 'inventory') {
-                                $tokens = ConvertTo-TokenObjects -InputData $inputData.inventory -HasUserAssignments:$true
+                        elseif ($SchemaType -eq 'Inventory') {
+                            # When SchemaType is Inventory, don't process assignments even if they exist
+                            $processAssignments = $false
+                        }
+                        
+                        $addedTokens = $null
+                        $processedAssignments = 0
+                        
+                        # Step 1: Process inventory array if needed
+                        if ($processInventory -and $inputData.PSObject.Properties.Name -contains 'inventory') {
+                            # Convert inventory to token objects
+                            $tokens = ConvertTo-TokenObjects -InputData $inputData.inventory -ProcessUserAssignments $AssignToUsers
+                            
+                            # Check if we have tokens to process
+                            if ($tokens.Count -eq 0) {
+                                Write-Warning "No valid tokens found in inventory array."
                             }
-                            elseif ($inputData.PSObject.Properties.Name -contains 'assignments') {
-                                # This is for the existing assignment format
-                                $assignments = $inputData.assignments
-                                $processedAssignments = @()
+                            else {
+                                # Process the inventory
+                                Write-Host "Adding $($tokens.Count) tokens to inventory..." -ForegroundColor Cyan
+                                
+                                # Confirm before proceeding
+                                if (-not $Force -and -not $PSCmdlet.ShouldProcess("$($tokens.Count) tokens", "Import")) {
+                                    Write-Warning "Import canceled by user."
+                                    return $false
+                                }
+                                
+                                # Add tokens
+                                $addedTokens = Add-OATHToken -Tokens $tokens
+                                
+                                if (-not $addedTokens -or $addedTokens.Count -eq 0) {
+                                    Write-Warning "Failed to add any tokens from inventory."
+                                }
+                                else {
+                                    # Process user assignments if requested and if there are any
+                                    if ($AssignToUsers) {
+                                        $assignmentCount = 0
+                                        $totalEligible = 0
+                                        
+                                        foreach ($token in $tokens) {
+                                            if ($token.assignTo -and $token.assignTo.id) {
+                                                $totalEligible++
+                                                $userId = $token.assignTo.id
+                                                
+                                                # Find the added token with matching serial number
+                                                $addedToken = $addedTokens | Where-Object { $_.serialNumber -eq $token.serialNumber } | Select-Object -First 1
+                                                
+                                                if ($addedToken) {
+                                                    Write-Verbose "Assigning token $($addedToken.id) to user $userId..."
+                                                    try {
+                                                        $success = Set-OATHTokenUser -TokenId $addedToken.id -UserId $userId -ErrorAction SilentlyContinue
+                                                        if ($success) {
+                                                            $assignmentCount++
+                                                            
+                                                            # Check if we should try to activate the token
+                                                            if ($token.PSObject.Properties.Name -contains 'activate' -and $token.activate -eq $true -and 
+                                                                $token.PSObject.Properties.Name -contains 'secretKey') {
+                                                                
+                                                                Write-Verbose "Attempting to auto-activate token $($addedToken.id)..."
+                                                                try {
+                                                                    $activateResult = Set-OATHTokenActive -TokenId $addedToken.id -UserId $userId -Secret $token.secretKey
+                                                                    if ($activateResult) {
+                                                                        Write-Verbose "Successfully activated token $($addedToken.id)."
+                                                                    }
+                                                                }
+                                                                catch {
+                                                                    Write-Warning "Failed to activate token $($addedToken.id): $_"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    catch {
+                                                        # Already logged in Set-OATHTokenUser
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        if ($totalEligible -gt 0) {
+                                            Write-Host "Assigned $assignmentCount of $totalEligible tokens to users from inventory." -ForegroundColor Green
+                                        }
+                                    }
+                                    
+                                    Write-Host "Successfully imported $($addedTokens.Count) of $($tokens.Count) tokens from inventory." -ForegroundColor Green
+                                }
+                            }
+                        }
+                        
+                        # Step 2: Process assignments array if needed
+                        if ($processAssignments && $inputData.PSObject.Properties.Name -contains 'assignments') {
+                            $assignments = $inputData.assignments
+                            $failedAssignments = 0
+                            
+                            if ($assignments -and $assignments.Count -gt 0) {
+                                Write-Host "Processing $($assignments.Count) token assignments..." -ForegroundColor Cyan
                                 
                                 # Process existing tokens with new assignments
                                 foreach ($assignment in $assignments) {
                                     if (-not $assignment.userId -or -not $assignment.tokenId) {
                                         Write-Warning "Assignment missing userId or tokenId."
+                                        $failedAssignments++
                                         continue
                                     }
                                     
-                                    if ($Force -or $PSCmdlet.ShouldProcess($assignment.tokenId, "Assign to user $($assignment.userId)")) {
-                                        $success = Set-OATHTokenUser -TokenId $assignment.tokenId -UserId $assignment.userId
-                                        if ($success) {
-                                            $processedAssignments += $assignment
+                                    # Validate token ID format
+                                    if (-not ($assignment.tokenId -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')) {
+                                        Write-Warning "Invalid token ID format in assignment: $($assignment.tokenId). Must be a valid GUID."
+                                        $failedAssignments++
+                                        continue
+                                    }
+                                    
+                                    # Resolve user ID if it's not a GUID
+                                    $userId = $assignment.userId
+                                    if (-not ($userId -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')) {
+                                        try {
+                                            $resolvedUser = Get-MgUserByIdentifier -Identifier $userId
+                                            if ($resolvedUser) {
+                                                Write-Verbose "Resolved user identifier '$userId' to ID: $($resolvedUser.id)"
+                                                $userId = $resolvedUser.id
+                                            }
+                                            else {
+                                                Write-Warning "Could not resolve user: $userId - Skipping assignment"
+                                                $failedAssignments++
+                                                continue
+                                            }
+                                        }
+                                        catch {
+                                            Write-Warning "Error resolving user $userId`: $_ - Skipping assignment"
+                                            $failedAssignments++
+                                            continue
+                                        }
+                                    }
+                                    
+                                    if ($Force -or $PSCmdlet.ShouldProcess($assignment.tokenId, "Assign to user $userId")) {
+                                        try {
+                                            $success = Set-OATHTokenUser -TokenId $assignment.tokenId -UserId $userId -Force:$Force -ErrorAction SilentlyContinue
+                                            if ($success) {
+                                                $processedAssignments++
+                                            }
+                                            else {
+                                                $failedAssignments++
+                                            }
+                                        }
+                                        catch {
+                                            # Error is already output by Set-OATHTokenUser
+                                            $failedAssignments++
                                         }
                                     }
                                 }
                                 
-                                Write-Host "Assigned $($processedAssignments.Count) of $($assignments.Count) tokens to users." -ForegroundColor Green
-                                return $processedAssignments.Count -gt 0
+                                Write-Host "Assigned $processedAssignments tokens to users ($failedAssignments failed)." -ForegroundColor Green
                             }
+                        }
+                        
+                        # Return success if either inventory or assignments were processed
+                        if ($addedTokens -and $addedTokens.Count -gt 0) {
+                            return $addedTokens
+                        }
+                        elseif ($processedAssignments -gt 0) {
+                            return $true
+                        }
+                        elseif ($processInventory -eq $false -and $processAssignments -eq $true) {
+                            # This is a special case for UserAssignments where we processed assignments only
+                            return $processedAssignments -gt 0
+                        }
+                        else {
+                            # Only return false if nothing succeeded
+                            return $false
                         }
                     }
                     'CSV' {
                         Write-Verbose "Loading CSV data from $FilePath with delimiter '$Delimiter'..."
                         $csvData = Import-Csv -Path $FilePath -Delimiter $Delimiter
-                        $tokens = ConvertTo-TokenObjects -InputData $csvData -HasUserAssignments:$AssignToUsers
+                        $tokens = ConvertTo-TokenObjects -InputData $csvData -ProcessUserAssignments $AssignToUsers
+                        
+                        # Process the tokens as we do with inventory
+                        if ($tokens.Count -eq 0) {
+                            Write-Warning "No valid tokens found in CSV file."
+                            return $false
+                        }
+                        
+                        # Continue with normal inventory processing
+                        # ...
                     }
                 }
             }
             else {
-                # Using InputObject parameter
-                if (-not $Format) {
-                    throw "Format must be specified when using InputObject."
-                }
-                
-                switch ($Format) {
-                    'JSON' {
-                        # Validate schema
-                        if (-not (Test-JsonSchema -JsonData $InputObject -SchemaType $SchemaType)) {
-                            throw "Invalid JSON schema for type $SchemaType."
-                        }
-                        
-                        if ($SchemaType -eq 'Inventory') {
-                            $tokens = ConvertTo-TokenObjects -InputData $InputObject.inventory -HasUserAssignments:$AssignToUsers
-                        }
-                        elseif ($SchemaType -eq 'UserAssignments') {
-                            if ($InputObject.PSObject.Properties.Name -contains 'inventory') {
-                                $tokens = ConvertTo-TokenObjects -InputData $InputObject.inventory -HasUserAssignments:$true
-                            }
-                            elseif ($InputObject.PSObject.Properties.Name -contains 'assignments') {
-                                # This is for the existing assignment format
-                                $assignments = $InputObject.assignments
-                                $processedAssignments = @()
-                                
-                                # Process existing tokens with new assignments
-                                foreach ($assignment in $assignments) {
-                                    if (-not $assignment.userId -or -not $assignment.tokenId) {
-                                        Write-Warning "Assignment missing userId or tokenId."
-                                        continue
-                                    }
-                                    
-                                    if ($Force -or $PSCmdlet.ShouldProcess($assignment.tokenId, "Assign to user $($assignment.userId)")) {
-                                        $success = Set-OATHTokenUser -TokenId $assignment.tokenId -UserId $assignment.userId
-                                        if ($success) {
-                                            $processedAssignments += $assignment
-                                        }
-                                    }
-                                }
-                                
-                                Write-Host "Assigned $($processedAssignments.Count) of $($assignments.Count) tokens to users." -ForegroundColor Green
-                                return $processedAssignments.Count -gt 0
-                            }
-                        }
-                    }
-                    'CSV' {
-                        $tokens = ConvertTo-TokenObjects -InputData $InputObject -HasUserAssignments:$AssignToUsers
-                    }
-                }
-            }
-            
-            # Check if we have tokens to process
-            if ($tokens.Count -eq 0) {
-                Write-Warning "No valid tokens found to import."
-                return $false
+                # Process InputObject parameter handling
+                # ...existing code...
             }
             
             # Process tokens

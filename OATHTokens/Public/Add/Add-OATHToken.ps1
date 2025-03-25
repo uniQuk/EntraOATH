@@ -220,13 +220,24 @@ function Add-OATHToken {
                         'Hex'  # Default assumption for non-Base32 keys is hex
                     }
                     
-                    switch ($format.ToLower()) {
-                        'hex' {
-                            $currentToken.secretKey = ConvertTo-Base32 -InputString $originalKey -InputFormat 'Hex'
+                    try {
+                        switch ($format.ToLower()) {
+                            'hex' {
+                                # First check if it's actually a valid hex string
+                                if (-not [regex]::IsMatch($originalKey, '^[0-9a-fA-F]+$')) {
+                                    throw "Invalid hexadecimal string: $originalKey"
+                                }
+                                $currentToken.secretKey = ConvertTo-Base32 -InputString $originalKey -InputFormat 'Hex'
+                            }
+                            'text' {
+                                $currentToken.secretKey = ConvertTo-Base32 -InputString $originalKey -InputFormat 'Text'
+                            }
                         }
-                        'text' {
-                            $currentToken.secretKey = ConvertTo-Base32 -InputString $originalKey -InputFormat 'Text'
-                        }
+                    }
+                    catch {
+                        Write-Error "Error converting secret key for token $($currentToken.serialNumber): $_"
+                        $failedCount++
+                        continue
                     }
                     
                     if (-not $currentToken.secretKey) {

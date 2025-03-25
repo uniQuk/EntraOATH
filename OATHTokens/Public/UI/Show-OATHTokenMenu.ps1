@@ -178,9 +178,8 @@ function Show-OATHTokenMenu {
             Write-Host "1) Add OATH Token" -ForegroundColor $promptColor
             Write-Host "2) Assign OATH User" -ForegroundColor $promptColor
             Write-Host "3) Activate OATH Token" -ForegroundColor $promptColor
-            Write-Host "4) Bulk Add OATH Inventory" -ForegroundColor $promptColor
-            Write-Host "5) Bulk Add OATH User" -ForegroundColor $promptColor
-            Write-Host "6) Activate with TOTP" -ForegroundColor $promptColor
+            Write-Host "4) Bulk Import OATH Tokens" -ForegroundColor $promptColor
+            Write-Host "5) Activate with TOTP" -ForegroundColor $promptColor
             Write-Host "0) Return to main menu" -ForegroundColor $promptColor
             Write-Host ""
             
@@ -270,18 +269,26 @@ function Show-OATHTokenMenu {
                     Show-AddMenu
                 }
                 "4" {
-                    # Bulk add tokens from JSON
-                    $jsonPath = Read-Host "Enter JSON file path (press Enter for default tokens_inventory.json)"
+                    # Bulk import tokens (can include both unassigned and assigned tokens)
+                    $jsonPath = Read-Host "Enter JSON file path (press Enter for default tokens.json)"
                     
                     if ([string]::IsNullOrWhiteSpace($jsonPath)) {
-                        $jsonPath = Join-Path -Path $PWD -ChildPath "tokens_inventory.json"
+                        $jsonPath = Join-Path -Path $PWD -ChildPath "tokens.json"
                     }
                     
                     if (-not (Test-Path -Path $jsonPath)) {
                         Write-Host "File not found: $jsonPath" -ForegroundColor $errorColor
                     } else {
                         Write-Host "Importing tokens from: $jsonPath" -ForegroundColor $headerColor
-                        $result = Import-OATHToken -FilePath $jsonPath -Format JSON
+                        
+                        # Ask if tokens should be assigned to users if they have assignTo properties
+                        $assignToUsers = $true # Default is now true
+                        $assignPrompt = Read-Host "Skip user assignments? (Y/N, default: N)"
+                        if (-not [string]::IsNullOrWhiteSpace($assignPrompt) -and $assignPrompt.ToUpper() -eq 'Y') {
+                            $assignToUsers = $false
+                        }
+                        
+                        $result = Import-OATHToken -FilePath $jsonPath -Format JSON -AssignToUsers:$assignToUsers
                         
                         if ($result) {
                             Write-Host "Tokens imported successfully." -ForegroundColor $successColor
@@ -295,31 +302,6 @@ function Show-OATHTokenMenu {
                     Show-AddMenu
                 }
                 "5" {
-                    # Bulk add tokens with user assignments
-                    $jsonPath = Read-Host "Enter JSON file path (press Enter for default tokens_users.json)"
-                    
-                    if ([string]::IsNullOrWhiteSpace($jsonPath)) {
-                        $jsonPath = Join-Path -Path $PWD -ChildPath "tokens_users.json"
-                    }
-                    
-                    if (-not (Test-Path -Path $jsonPath)) {
-                        Write-Host "File not found: $jsonPath" -ForegroundColor $errorColor
-                    } else {
-                        Write-Host "Importing tokens with user assignments from: $jsonPath" -ForegroundColor $headerColor
-                        $result = Import-OATHToken -FilePath $jsonPath -Format JSON -SchemaType UserAssignments -AssignToUsers
-                        
-                        if ($result) {
-                            Write-Host "Tokens imported and assigned successfully." -ForegroundColor $successColor
-                        } else {
-                            Write-Host "Failed to import tokens with user assignments." -ForegroundColor $errorColor
-                        }
-                    }
-                    
-                    Write-Host "Press any key to continue..." -ForegroundColor $promptColor
-                    [void][System.Console]::ReadKey($true)
-                    Show-AddMenu
-                }
-                "6" {
                     # Activate token with TOTP
                     $tokenId = Read-Host "Enter token ID"
                     $userId = Read-Host "Enter user ID or UPN"

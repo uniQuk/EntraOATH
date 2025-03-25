@@ -139,7 +139,6 @@ Remove-OATHToken -TokenId "00000000-0000-0000-0000-000000000000"
 
 # Remove a token without confirmation
 Remove-OATHToken -TokenId "00000000-0000-0000-0000-000000000000" -Force
-
 # Remove multiple tokens
 Get-OATHToken -SerialNumber "TEST*" | ForEach-Object { Remove-OATHToken -TokenId $_.id -Force }
 ```
@@ -184,6 +183,12 @@ Set-OATHTokenUser -TokenId "00000000-0000-0000-0000-000000000000" -UserId "John 
 
 # Unassign a token from its current user
 Set-OATHTokenUser -TokenId "00000000-0000-0000-0000-000000000000" -Unassign
+
+# Bulk Unassign tokens using SerialNumber
+Get-OATHToken -SerialNumber "AUTO*" | ForEach-Object { Set-OATHTokenUser -TokenId $_.id -Unassign -Force }
+
+# Bulk Unassign tokens by UPN
+Get-OATHToken -UserId "user@contoso.com" | ForEach-Object { Set-OATHTokenUser -TokenId $_.id -Unassign -Force }
 ```
 
 ### Set-OATHTokenActive

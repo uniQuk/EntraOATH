@@ -1,8 +1,8 @@
 {
     "module": "OATHTokens",
     "publishSettings": {
-        "version": "0.5.2",
-        "publishThisVersion": false,
+        "version": "0.6.0",
+        "publishThisVersion": true,
         "releaseNotes": "Enhance Add-OATHToken to support user assignment in a single step"
     }
 }
