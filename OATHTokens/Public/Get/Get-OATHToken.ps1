@@ -77,10 +77,14 @@ function Get-OATHToken {
     )
     
     begin {
+        # Initialize the skip processing flag at the start of each function call
+        $script:skipProcessing = $false
+        
         # Ensure we're connected to Graph
         if (-not (Test-MgConnection)) {
             $script:skipProcessing = $true
-            return $null
+            # Return here only exits the begin block, not the function
+            return
         }
         
         $baseEndpoint = "https://graph.microsoft.com/$ApiVersion/directory/authenticationMethodDevices/hardwareOathDevices"
@@ -89,8 +93,10 @@ function Get-OATHToken {
     process {
         # Skip all processing if the connection check failed
         if ($script:skipProcessing) {
+            # Explicitly return null from the process block
             return $null
         }
+        
         try {
             # Handle single token retrieval by ID
             if ($PSCmdlet.ParameterSetName -eq 'ById') {

@@ -56,9 +56,14 @@ function Set-OATHTokenActive {
     )
     
     begin {
+        # Initialize the skip processing flag at the start of each function call
+        $script:skipProcessing = $false
+        
         # Ensure we're connected to Graph
         if (-not (Test-MgConnection)) {
-            throw "Microsoft Graph connection required."
+            $script:skipProcessing = $true
+            # Return here only exits the begin block, not the function
+            return
         }
         
         # Convert the verification code
@@ -124,6 +129,16 @@ function Set-OATHTokenActive {
     }
     
     process {
+        # Skip all processing if the connection check failed
+        if ($script:skipProcessing) {
+            return [PSCustomObject]@{
+                Success = $false
+                Reason = "Not connected to Microsoft Graph"
+                TokenId = $TokenId
+                UserId = $UserId
+            }
+        }
+
         try {
             # Validate token ID format
             if (-not (Test-OATHTokenId -TokenId $TokenId)) {

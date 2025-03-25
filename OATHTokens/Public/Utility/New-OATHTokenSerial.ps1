@@ -55,6 +55,9 @@ function New-OATHTokenSerial {
     )
     
     begin {
+        # Initialize skip processing flag when checking existing tokens
+        $script:skipProcessing = $false
+        
         # Generate character sets based on selected format
         function Get-CharacterSet {
             param([string]$Format)
@@ -81,18 +84,22 @@ function New-OATHTokenSerial {
         # Retrieve existing tokens if needed
         if ($CheckExisting) {
             if (-not (Test-MgConnection)) {
-                throw "Microsoft Graph connection required when using -CheckExisting."
+                $script:skipProcessing = $true
+                Write-Warning "Not connected to Microsoft Graph. Cannot check for existing tokens."
+                # Not throwing - we'll continue without checking duplicates
             }
             
-            try {
-                Write-Verbose "Retrieving existing tokens to check for duplicate serial numbers..."
-                $tokens = Get-OATHToken
-                $existingSerials = $tokens | Select-Object -ExpandProperty SerialNumber
-                Write-Verbose "Found $($existingSerials.Count) existing tokens"
-            }
-            catch {
-                Write-Warning "Failed to retrieve existing tokens: $_"
-                # Don't throw - we'll continue and just not check for duplicates
+            if (-not $script:skipProcessing) {
+                try {
+                    Write-Verbose "Retrieving existing tokens to check for duplicate serial numbers..."
+                    $tokens = Get-OATHToken
+                    $existingSerials = $tokens | Select-Object -ExpandProperty SerialNumber
+                    Write-Verbose "Found $($existingSerials.Count) existing tokens"
+                }
+                catch {
+                    Write-Warning "Failed to retrieve existing tokens: $_"
+                    # Don't throw - we'll continue and just not check for duplicates
+                }
             }
         }
     }

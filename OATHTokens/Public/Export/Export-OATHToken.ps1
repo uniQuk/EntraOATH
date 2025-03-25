@@ -52,6 +52,16 @@ function Export-OATHToken {
     )
     
     begin {
+        # Initialize the skip processing flag at the start of each function call
+        $script:skipProcessing = $false
+        
+        # Ensure we're connected to Graph when getting tokens
+        if (-not $Tokens -and -not (Test-MgConnection)) {
+            $script:skipProcessing = $true
+            # Return here only exits the begin block, not the function
+            return
+        }
+        
         # Create a collection to store tokens
         $allTokens = [System.Collections.Generic.List[object]]::new()
         
@@ -79,6 +89,11 @@ function Export-OATHToken {
     }
     
     process {
+        # Skip all processing if the connection check failed
+        if ($script:skipProcessing) {
+            return $Format -eq 'PS' ? $null : $false
+        }
+
         # If tokens were provided, add them to our collection
         if ($Tokens) {
             foreach ($token in $Tokens) {

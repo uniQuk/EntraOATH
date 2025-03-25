@@ -45,7 +45,8 @@ function Test-MgConnection {
         return $true
     }
     catch {
-        Write-Error "Error checking Microsoft Graph connection: $_"
+        Write-Warning "Error checking Microsoft Graph connection: $_"
+        Write-Warning "Please run Connect-MgGraph to connect to Microsoft Graph."
         return $false
     }
 }

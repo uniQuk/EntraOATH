@@ -48,9 +48,14 @@ function Remove-OATHToken {
     )
     
     begin {
+        # Initialize the skip processing flag at the start of each function call
+        $script:skipProcessing = $false
+        
         # Ensure we're connected to Graph
         if (-not (Test-MgConnection)) {
-            throw "Microsoft Graph connection required."
+            $script:skipProcessing = $true
+            # Return here only exits the begin block, not the function
+            return
         }
         
         $baseEndpoint = "https://graph.microsoft.com/$ApiVersion/directory/authenticationMethodDevices/hardwareOathDevices"
@@ -62,6 +67,11 @@ function Remove-OATHToken {
     }
     
     process {
+        # Skip all processing if the connection check failed
+        if ($script:skipProcessing) {
+            return $false
+        }
+
         try {
             $processedCount++
             $targetTokens = @()

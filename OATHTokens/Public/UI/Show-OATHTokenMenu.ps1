@@ -34,12 +34,15 @@ function Show-OATHTokenMenu {
     )
     
     begin {
+        # Initialize the skip processing flag at the start of each function call
+        $script:skipProcessing = $false
+        
         # Ensure we're connected to Graph
         if (-not (Test-MgConnection)) {
-            # Write-Warning "Microsoft Graph connection required. Please run Connect-MgGraph with appropriate scopes first."
             # Set a flag to indicate we should skip processing
             $script:skipProcessing = $true
-            return $null
+            # Return here only exits the begin block, not the function
+            return
         }
         
         # Set console colors
@@ -47,7 +50,6 @@ function Show-OATHTokenMenu {
         $script:promptColor = [System.ConsoleColor]::Yellow
         $script:successColor = [System.ConsoleColor]::Green
         $script:errorColor = [System.ConsoleColor]::Red
-        $script:skipProcessing = $false
     }
     
     process {
