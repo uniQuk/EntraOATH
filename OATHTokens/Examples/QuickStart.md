@@ -47,6 +47,9 @@ Get-OATHToken -SerialNumber "YK*"
 # Simple approach
 Add-OATHToken -SerialNumber "YK123456" -SecretKey "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
+# Add token and assign to user in one step
+Add-OATHToken -SerialNumber "YK123456" -SecretKey "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" -UserId "user@example.com"
+
 # Using a token object
 $token = @{
     serialNumber = "YK123456"
@@ -54,6 +57,7 @@ $token = @{
     secretFormat = "hex"
     manufacturer = "Yubico"
     model = "YubiKey 5"
+    assignTo = @{ id = "user@example.com" }  # Can specify user upn or id
 }
 Add-OATHToken -Token $token
 ```

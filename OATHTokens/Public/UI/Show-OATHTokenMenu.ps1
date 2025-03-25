@@ -175,65 +175,54 @@ function Show-OATHTokenMenu {
         function Show-AddMenu {
             Clear-Host
             Write-Host "===== Add OATH Menu =====" -ForegroundColor $headerColor
-            Write-Host "1) Add OATH inventory" -ForegroundColor $promptColor
-            Write-Host "2) Add OATH user" -ForegroundColor $promptColor
-            Write-Host "3) Assign OATH user" -ForegroundColor $promptColor
-            Write-Host "4) Activate OATH token" -ForegroundColor $promptColor
-            Write-Host "5) Bulk Add OATH Inventory" -ForegroundColor $promptColor
-            Write-Host "6) Bulk Add OATH User" -ForegroundColor $promptColor
-            Write-Host "7) Activate with TOTP" -ForegroundColor $promptColor
+            Write-Host "1) Add OATH Token" -ForegroundColor $promptColor
+            Write-Host "2) Assign OATH User" -ForegroundColor $promptColor
+            Write-Host "3) Activate OATH Token" -ForegroundColor $promptColor
+            Write-Host "4) Bulk Add OATH Inventory" -ForegroundColor $promptColor
+            Write-Host "5) Bulk Add OATH User" -ForegroundColor $promptColor
+            Write-Host "6) Activate with TOTP" -ForegroundColor $promptColor
             Write-Host "0) Return to main menu" -ForegroundColor $promptColor
             Write-Host ""
             
             $choice = Read-Host "Enter your choice"
             switch ($choice) {
                 "1" { 
-                    # Add single token to inventory
+                    # Add token with optional user assignment
                     $serialNumber = Read-Host "Enter token serial number"
                     $secretKey = Read-Host "Enter secret key"
                     $secretFormat = Read-Host "Enter secret format (Base32, Hex, Text) or leave blank for Base32"
+                    $userId = Read-Host "Enter user ID or UPN (optional, leave blank for no assignment)"
                     
                     if ([string]::IsNullOrWhiteSpace($secretFormat)) {
                         $secretFormat = "Base32"
                     }
                     
                     Write-Host "Adding token with serial number: $serialNumber" -ForegroundColor $headerColor
-                    $result = Add-OATHToken -SerialNumber $serialNumber -SecretKey $secretKey -SecretFormat $secretFormat
+                    
+                    $params = @{
+                        SerialNumber = $serialNumber
+                        SecretKey = $secretKey
+                        SecretFormat = $secretFormat
+                    }
+                    
+                    # Only include UserId if it was provided
+                    if (-not [string]::IsNullOrWhiteSpace($userId)) {
+                        $params['UserId'] = $userId
+                        Write-Host "Token will be assigned to: $userId" -ForegroundColor $headerColor
+                    }
+                    
+                    $result = Add-OATHToken @params
                     
                     if ($result) {
-                        Write-Host "Token added successfully." -ForegroundColor $successColor
-                    } else {
-                        Write-Host "Failed to add token." -ForegroundColor $errorColor
-                    }
-                    
-                    Write-Host "Press any key to continue..." -ForegroundColor $promptColor
-                    [void][System.Console]::ReadKey($true)
-                    Show-AddMenu
-                }
-                "2" {
-                    # Add token and assign to user
-                    $serialNumber = Read-Host "Enter token serial number"
-                    $secretKey = Read-Host "Enter secret key"
-                    $secretFormat = Read-Host "Enter secret format (Base32, Hex, Text) or leave blank for Base32"
-                    $userId = Read-Host "Enter user ID or UPN"
-                    
-                    if ([string]::IsNullOrWhiteSpace($secretFormat)) {
-                        $secretFormat = "Base32"
-                    }
-                    
-                    Write-Host "Adding token and assigning to user..." -ForegroundColor $headerColor
-                    
-                    # First add the token
-                    $token = Add-OATHToken -SerialNumber $serialNumber -SecretKey $secretKey -SecretFormat $secretFormat
-                    
-                    if ($token) {
-                        # Then assign it to the user
-                        $assignResult = Set-OATHTokenUser -TokenId $token.id -UserId $userId
-                        
-                        if ($assignResult) {
-                            Write-Host "Token added and assigned successfully." -ForegroundColor $successColor
+                        if ([string]::IsNullOrWhiteSpace($userId)) {
+                            Write-Host "Token added successfully." -ForegroundColor $successColor
                         } else {
-                            Write-Host "Token added but assignment failed." -ForegroundColor $errorColor
+                            # Check if the token has the assignedTo property set
+                            if ($result.assignedTo -or $result.userId) {
+                                Write-Host "Token added and assigned successfully." -ForegroundColor $successColor
+                            } else {
+                                Write-Host "Token added but assignment may have failed." -ForegroundColor $errorColor
+                            }
                         }
                     } else {
                         Write-Host "Failed to add token." -ForegroundColor $errorColor
@@ -243,7 +232,7 @@ function Show-OATHTokenMenu {
                     [void][System.Console]::ReadKey($true)
                     Show-AddMenu
                 }
-                "3" {
+                "2" {
                     # Assign existing token to user
                     $tokenId = Read-Host "Enter token ID"
                     $userId = Read-Host "Enter user ID or UPN"
@@ -261,7 +250,7 @@ function Show-OATHTokenMenu {
                     [void][System.Console]::ReadKey($true)
                     Show-AddMenu
                 }
-                "4" {
+                "3" {
                     # Activate token with verification code
                     $tokenId = Read-Host "Enter token ID"
                     $userId = Read-Host "Enter user ID or UPN"
@@ -280,7 +269,7 @@ function Show-OATHTokenMenu {
                     [void][System.Console]::ReadKey($true)
                     Show-AddMenu
                 }
-                "5" {
+                "4" {
                     # Bulk add tokens from JSON
                     $jsonPath = Read-Host "Enter JSON file path (press Enter for default tokens_inventory.json)"
                     
@@ -305,7 +294,7 @@ function Show-OATHTokenMenu {
                     [void][System.Console]::ReadKey($true)
                     Show-AddMenu
                 }
-                "6" {
+                "5" {
                     # Bulk add tokens with user assignments
                     $jsonPath = Read-Host "Enter JSON file path (press Enter for default tokens_users.json)"
                     
@@ -330,7 +319,7 @@ function Show-OATHTokenMenu {
                     [void][System.Console]::ReadKey($true)
                     Show-AddMenu
                 }
-                "7" {
+                "6" {
                     # Activate token with TOTP
                     $tokenId = Read-Host "Enter token ID"
                     $userId = Read-Host "Enter user ID or UPN"

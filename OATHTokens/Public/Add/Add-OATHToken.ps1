@@ -83,6 +83,9 @@ function Add-OATHToken {
         [Parameter(ParameterSetName = 'Simple')]
         [string]$DisplayName,
         
+        [Parameter(ParameterSetName = 'Simple')]
+        [string]$UserId,
+        
         [Parameter()]
         [string]$ApiVersion = 'beta'
     )
@@ -120,6 +123,22 @@ function Add-OATHToken {
         $skippedCount = 0
         $failedCount = 0
         $results = [System.Collections.Generic.List[object]]::new()
+        
+        # Resolve UserId if provided in Simple parameter set
+        $resolvedUserId = $null
+        if ($PSCmdlet.ParameterSetName -eq 'Simple' -and -not [string]::IsNullOrWhiteSpace($UserId)) {
+            try {
+                $user = Get-MgUserByIdentifier -Identifier $UserId
+                if ($user) {
+                    $resolvedUserId = $user.id
+                    Write-Verbose "Resolved user ID $UserId to: $resolvedUserId"
+                } else {
+                    Write-Warning "Could not resolve user: $UserId - Token will be created but not assigned"
+                }
+            } catch {
+                Write-Warning "Error resolving user $UserId`: $_"
+            }
+        }
     }
     
     process {
@@ -147,6 +166,11 @@ function Add-OATHToken {
             
             if ($SecretFormat -ne 'Base32') {
                 $simpleToken.secretFormat = $SecretFormat.ToLower()
+            }
+            
+            # Add user assignment if a user was resolved
+            if ($resolvedUserId) {
+                $simpleToken['assignTo'] = @{ id = $resolvedUserId }
             }
             
             $tokensToProcess.Add($simpleToken)
@@ -235,6 +259,18 @@ function Add-OATHToken {
                     $currentToken.displayName = "YubiKey ($($currentToken.serialNumber))"
                 }
                 
+                # Process user assignment if present
+                if ($currentToken.ContainsKey('assignTo') -and $currentToken.assignTo -and $currentToken.assignTo.id) {
+                    # Verify the user ID is valid
+                    $userIdToAssign = $currentToken.assignTo.id
+                    if ($userIdToAssign -ne "null" -and -not [string]::IsNullOrWhiteSpace($userIdToAssign)) {
+                        Write-Verbose "Token will be assigned to user ID: $userIdToAssign"
+                    } else {
+                        # Remove invalid assignTo property
+                        $currentToken.Remove('assignTo')
+                    }
+                }
+                
                 # Remove any non-Graph API properties
                 $propertiesToRemove = @('secretFormat')
                 foreach ($prop in $propertiesToRemove) {
@@ -246,11 +282,18 @@ function Add-OATHToken {
                 # Add the token
                 Write-Verbose "Adding token with serial number: $($currentToken.serialNumber)"
                 $body = $currentToken | ConvertTo-Json -Depth 10
+                Write-Verbose "Request body: $body"
                 
                 try {
                     $response = Invoke-MgGraphWithErrorHandling -Method POST -Uri $baseEndpoint -Body $body -ContentType "application/json"
                     
                     Write-Host "Successfully added token with serial number: $($currentToken.serialNumber)" -ForegroundColor Green
+                    
+                    # Display user assignment information if applicable
+                    if ($currentToken.ContainsKey('assignTo') -and $currentToken.assignTo -and $currentToken.assignTo.id) {
+                        Write-Host "  Token was assigned to user: $($currentToken.assignTo.id)" -ForegroundColor Green
+                    }
+                    
                     $successCount++
                     $results.Add($response)
                 }
